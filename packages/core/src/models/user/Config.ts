@@ -18,6 +18,7 @@ export type DraftGapConfig = {
     minGames: number;
     matchupRoleWeights: RoleWeights;
     duoRoleWeights: RoleWeights;
+    analyzeHovers: boolean;
 
     // DRAFT SUGGESTIONS
     showFavouritesAtTop: boolean;

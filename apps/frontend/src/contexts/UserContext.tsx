@@ -18,6 +18,7 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     minGames: 1000,
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
+    analyzeHovers: false,
 
     // UI
     showFavouritesAtTop: false,
