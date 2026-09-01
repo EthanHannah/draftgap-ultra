@@ -373,7 +373,7 @@ export default function DraftTable() {
                   {
                       id: "blindability",
                       header: () => (
-                          <span title="Fit with likely teammates and exposure to likely counters, weighted by pick rate">
+                          <span title="Fit with likely teammates and first-pick exposure to enemy counters">
                               Blindability
                           </span>
                       ),

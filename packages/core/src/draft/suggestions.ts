@@ -1,4 +1,4 @@
-import { Role, ROLES } from "../models/Role";
+import { DEFAULT_ROLE_WEIGHTS, Role, ROLES } from "../models/Role";
 import { Dataset } from "../models/dataset/Dataset";
 import { ratingToWinrate, winrateToRating } from "../rating/ratings";
 import { priorGamesByRiskLevel } from "../risk/risk-level";
@@ -57,6 +57,9 @@ const BLINDABILITY_LOWER_TAIL_WEIGHT = 0.5;
 const HARD_COUNTER_WINRATE = 0.48;
 const HARD_COUNTER_EXTRA_WEIGHT = 2;
 const COUNTER_EXPOSURE_RATING_SCALE = 50;
+// Opponents can react to a revealed first pick, so retain equal coverage for
+// niche counterpicks instead of relying entirely on unconditional pick rate.
+const COUNTER_META_PICK_RATE_FRACTION = 0.5;
 // Each cross-role matchup receives one eighth of the direct matchup weight, so
 // all four non-lane roles together contribute half as much as the lane/jungle
 // counterpart. This catches broader kit counters without diluting lane safety.
@@ -71,6 +74,30 @@ type AvailableChampion = {
     championKey: string;
     pickWeight: number;
 };
+
+function withCounterPickWeights(champions: AvailableChampion[]) {
+    if (champions.length === 0) return [];
+
+    const totalPickWeight = champions.reduce(
+        (total, champion) => total + champion.pickWeight,
+        0,
+    );
+    const uniformWeight = 1 / champions.length;
+
+    return champions.map((champion) => {
+        const metaWeight =
+            totalPickWeight === 0
+                ? uniformWeight
+                : champion.pickWeight / totalPickWeight;
+
+        return {
+            ...champion,
+            counterPickWeight:
+                metaWeight * COUNTER_META_PICK_RATE_FRACTION +
+                uniformWeight * (1 - COUNTER_META_PICK_RATE_FRACTION),
+        };
+    });
+}
 
 function isEligibleInRole(
     dataset: Dataset,
@@ -145,11 +172,15 @@ function getCounterExposureScore(interactions: WeightedInteraction[]) {
         (total, interaction) => total + interaction.weight,
         0,
     );
-    const counterWeight = weightedInteractions.reduce(
-        (total, interaction) =>
-            total + (interaction.rating < 0 ? interaction.weight : 0),
-        0,
-    );
+    const counterWeight = weightedInteractions.reduce((total, interaction) => {
+        const winrate = ratingToWinrate(interaction.rating);
+        const counterSeverity = Math.min(
+            1,
+            Math.max(0, (0.5 - winrate) / (0.5 - HARD_COUNTER_WINRATE)),
+        );
+
+        return total + counterSeverity * interaction.weight;
+    }, 0);
     const hardCounterWeight = weightedInteractions.reduce(
         (total, interaction) =>
             total +
@@ -161,11 +192,11 @@ function getCounterExposureScore(interactions: WeightedInteraction[]) {
     const counterRate = counterWeight / totalWeight;
     const hardCounterRate = hardCounterWeight / totalWeight;
 
-    // A hard counter is already included in counterRate. Count it twice more
-    // so one common hard counter matters as much as three ordinary counters.
-    // Favorable matchups contribute nothing and therefore cannot hide risk.
-    const exposure =
-        counterRate + hardCounterRate * HARD_COUNTER_EXTRA_WEIGHT;
+    // Soft counters contribute in proportion to their posterior downside, so
+    // sparse estimates near neutral stay small. A hard counter is already one
+    // full unit in counterRate; count it twice more so it matters as much as
+    // three ordinary counters. Favorable matchups cannot hide risk.
+    const exposure = counterRate + hardCounterRate * HARD_COUNTER_EXTRA_WEIGHT;
 
     return {
         counterRate,
@@ -314,7 +345,7 @@ export function getSuggestionsWithRoleUncertainty(
             opponentRole,
             opponentKey,
             priorGames,
-            config.matchupRoleWeights,
+            DEFAULT_ROLE_WEIGHTS,
         );
         matchupResultCache.set(cacheKey, result);
         return result;
@@ -409,24 +440,28 @@ export function getSuggestionsWithRoleUncertainty(
             let counterRateWeight = 0;
             const matchupInteractions: { games: number; weight: number }[] = [];
             for (const opponentRole of ROLES) {
+                const matchupRoleWeight =
+                    Math.max(0, config.matchupRoleWeights[opponentRole]) / 100;
                 const roleProbability =
                     enemyOpenRoleProbability[opponentRole] *
-                    (opponentRole === role
-                        ? 1
-                        : CROSS_ROLE_COUNTER_WEIGHT);
+                    matchupRoleWeight *
+                    (opponentRole === role ? 1 : CROSS_ROLE_COUNTER_WEIGHT);
                 if (roleProbability === 0) continue;
 
-                const results = availableChampionsByRole[opponentRole]
-                    .filter((opponent) => opponent.championKey !== championKey)
-                    .map((opponent) => ({
+                const possibleOpponents = availableChampionsByRole[
+                    opponentRole
+                ].filter((opponent) => opponent.championKey !== championKey);
+                const results = withCounterPickWeights(possibleOpponents).map(
+                    (opponent) => ({
                         result: getMatchupResult(
                             championKey,
                             role,
                             opponent.championKey,
                             opponentRole,
                         ),
-                        weight: opponent.pickWeight,
-                    }));
+                        weight: opponent.counterPickWeight,
+                    }),
+                );
                 const weightedRatings = results.map(({ result, weight }) => ({
                     rating: result.rating,
                     weight,

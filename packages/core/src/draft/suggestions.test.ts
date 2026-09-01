@@ -78,20 +78,21 @@ function setMatchup(
     opponentKey: string,
     opponentRole: Role,
     wins: number,
+    games = 100,
 ) {
     dataset.championData[championKey].statsByRole[role].matchup[opponentRole][
         opponentKey
     ] = {
         championKey: opponentKey,
-        games: 100,
+        games,
         wins,
     };
     dataset.championData[opponentKey].statsByRole[opponentRole].matchup[role][
         championKey
     ] = {
         championKey,
-        games: 100,
-        wins: 100 - wins,
+        games,
+        wins: games - wins,
     };
 }
 
@@ -293,9 +294,6 @@ describe("suggestion blindability", () => {
         const hardExposed = findTopSuggestion(suggestions, "hardExposed");
         const softExposed = findTopSuggestion(suggestions, "softExposed");
 
-        expect(hardExposed.blindabilityResult.counterRate).toBeLessThan(
-            softExposed.blindabilityResult.counterRate,
-        );
         expect(hardExposed.blindabilityResult.hardCounterRate).toBeGreaterThan(
             softExposed.blindabilityResult.hardCounterRate,
         );
@@ -304,7 +302,79 @@ describe("suggestion blindability", () => {
         );
     });
 
-    test("makes uncommon teammates and counters contribute less", () => {
+    test("makes sparse negative matchups contribute less than established counters", () => {
+        const dataset = createDataset([
+            "sparseExposed",
+            "supportedExposed",
+            "neutral",
+            "enemy",
+        ]);
+        for (const championKey of Object.keys(dataset.championData)) {
+            makeViable(dataset, championKey, Role.Top);
+        }
+
+        setMatchup(dataset, "sparseExposed", Role.Top, "enemy", Role.Top, 0, 1);
+        setMatchup(
+            dataset,
+            "supportedExposed",
+            Role.Top,
+            "enemy",
+            Role.Top,
+            40,
+        );
+
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            defaultConfig,
+        );
+        const sparseExposed = findTopSuggestion(suggestions, "sparseExposed");
+        const supportedExposed = findTopSuggestion(
+            suggestions,
+            "supportedExposed",
+        );
+
+        expect(sparseExposed.blindabilityResult.counterRate).toBeGreaterThan(0);
+        expect(sparseExposed.blindabilityResult.counterRate).toBeLessThan(
+            supportedExposed.blindabilityResult.counterRate,
+        );
+        expect(sparseExposed.blindabilityResult.matchupScore).toBeGreaterThan(
+            supportedExposed.blindabilityResult.matchupScore,
+        );
+    });
+
+    test("scales counter exposure continuously with matchup role influence", () => {
+        const dataset = createDataset(["candidate", "neutral", "enemy"]);
+        for (const championKey of Object.keys(dataset.championData)) {
+            makeViable(dataset, championKey, Role.Top);
+        }
+        setMatchup(dataset, "candidate", Role.Top, "enemy", Role.Top, 40);
+
+        const getCandidateAtWeight = (weight: number) =>
+            findTopSuggestion(
+                getSuggestions(dataset, dataset, new Map(), new Map(), {
+                    ...defaultConfig,
+                    matchupRoleWeights: {
+                        ...defaultConfig.matchupRoleWeights,
+                        [Role.Top]: weight,
+                    },
+                }),
+                "candidate",
+            );
+        const disabled = getCandidateAtWeight(0);
+        const half = getCandidateAtWeight(50);
+        const double = getCandidateAtWeight(200);
+
+        expect(disabled.blindabilityResult.matchupScore).toBe(0);
+        expect(half.blindabilityResult.matchupScore).toBeLessThan(0);
+        expect(double.blindabilityResult.matchupScore).toBeCloseTo(
+            half.blindabilityResult.matchupScore * 4,
+        );
+    });
+
+    test("weights teammate fit by pick rate and counter exposure by blended coverage", () => {
         const dataset = createDataset([
             "commonFavored",
             "rareFavored",
@@ -373,7 +443,7 @@ describe("suggestion blindability", () => {
             rareFavored.blindabilityResult.matchupScore,
         );
         expect(rareFavored.blindabilityResult.counterRate).toBeGreaterThan(
-            commonFavored.blindabilityResult.counterRate * 8,
+            commonFavored.blindabilityResult.counterRate * 3,
         );
         expect(rareFavored.blindabilityResult.synergyScore).toBeLessThan(
             neutral.blindabilityResult.synergyScore,

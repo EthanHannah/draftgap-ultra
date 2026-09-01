@@ -251,14 +251,17 @@ export default function SettingsDialog() {
                     <legend class="text-lg uppercase">Blindability</legend>
                     <p class="text-sm opacity-60">
                         Blindability combines compatibility with likely unknown
-                        teammates and exposure to likely enemy counters. Champion
-                        pick rates weight every unknown pick, so uncommon counters
-                        matter less. Hard counters—matchups at least 2 percentage
-                        points worse than expected—count extra. The direct-role
-                        opponent is primary; all four non-lane roles together
-                        receive half as much weight. Results are compared with
-                        viable choices in the same role, and sparse interactions
-                        are pulled toward neutral by the selected risk level.
+                        teammates and exposure to likely enemy counters.
+                        Teammates are weighted by pick rate. Counter likelihood
+                        blends pick rate with equal champion coverage, so niche
+                        counterpicks still matter after you reveal a pick. Soft
+                        counters scale with their estimated downside; hard
+                        counters—matchups at least 2 percentage points worse
+                        than expected—count extra. The direct-role opponent is
+                        primary; all four non-lane roles together receive half
+                        as much weight. Results are compared with viable choices
+                        in the same role, and sparse interactions are pulled
+                        toward neutral by the selected risk level.
                     </p>
                     <div class="mt-3">
                         <label class="grid gap-1">
