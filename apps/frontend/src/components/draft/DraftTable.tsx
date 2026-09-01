@@ -17,7 +17,6 @@ import { batch, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Icon } from "solid-heroicons";
 import { star } from "solid-heroicons/solid";
 import { star as starOutline } from "solid-heroicons/outline";
-import { RatingText } from "../common/RatingText";
 import { createMustSelectToast } from "../../utils/toast";
 import { useUser } from "../../contexts/UserContext";
 import { useDraftSuggestions } from "../../contexts/DraftSuggestionsContext";
@@ -28,6 +27,37 @@ import { Dialog } from "../common/Dialog";
 import { ChampionDraftAnalysisDialog } from "../dialogs/ChampionDraftAnalysisDialog";
 import { Team } from "@draftgap/core/src/models/Team";
 import { championName } from "../../utils/i18n";
+import { useDraftAnalysis } from "../../contexts/DraftAnalysisContext";
+import { ratingToWinrate } from "@draftgap/core/src/rating/ratings";
+import type { DraftResult } from "@draftgap/core/src/draft/analysis";
+
+function getRoundedWinrateDelta(delta: number) {
+    return Number((delta * 100).toFixed(2));
+}
+
+function formatWinrateDelta(delta: number) {
+    const roundedDelta = getRoundedWinrateDelta(delta);
+    return `${roundedDelta > 0 ? "+" : ""}${roundedDelta.toFixed(2)}`;
+}
+
+function WinrateDeltaText(props: { delta: number }) {
+    const roundedDelta = () => getRoundedWinrateDelta(props.delta);
+
+    return (
+        <span
+            classList={{
+                "text-winrate-good": roundedDelta() > 0,
+                "text-winrate-shiggo": roundedDelta() < 0,
+                "text-winrate-okay": roundedDelta() === 0,
+            }}
+            style={{
+                "font-variant-numeric": "tabular-nums",
+            }}
+        >
+            {formatWinrateDelta(props.delta)}
+        </span>
+    );
+}
 
 export default function DraftTable() {
     const { dataset } = useDataset();
@@ -41,12 +71,35 @@ export default function DraftTable() {
         setFavouriteFilter,
     } = useDraftFilters();
     const { allySuggestions, opponentSuggestions } = useDraftSuggestions();
+    const { allyDraftAnalysis, opponentDraftAnalysis } = useDraftAnalysis();
     const { isFavourite, setFavourite, config } = useUser();
 
     const suggestions = () =>
         selection.team === "opponent"
             ? opponentSuggestions()
             : allySuggestions();
+
+    const draftAnalysisBeforePick = () =>
+        selection.team === "opponent"
+            ? opponentDraftAnalysis()
+            : allyDraftAnalysis();
+
+    const componentWinrateDelta = (
+        suggestion: Suggestion,
+        getComponentRating: (result: DraftResult) => number,
+    ) => {
+        const beforePick = draftAnalysisBeforePick();
+        if (!beforePick) return 0;
+
+        const ratingDelta =
+            getComponentRating(suggestion.draftResult) -
+            getComponentRating(beforePick);
+
+        return (
+            ratingToWinrate(beforePick.totalRating + ratingDelta) -
+            beforePick.winrate
+        );
+    };
 
     const ownsChampion = (championKey: string) =>
         // If we don't have owned champions, we are not logged in, so we own all champions.
@@ -273,43 +326,61 @@ export default function DraftTable() {
         ...(config.showAdvancedWinrates
             ? ([
                   {
-                      header: "Champions",
+                      header: "Champions Δ",
                       accessorFn: (suggestion) =>
-                          suggestion.draftResult.allyChampionRating.totalRating,
+                          componentWinrateDelta(
+                              suggestion,
+                              (result) =>
+                                  result.allyChampionRating.totalRating,
+                          ),
                       cell: (info) => (
                           <div class="flex justify-end">
-                              <RatingText rating={info.getValue<number>()} />
+                              <WinrateDeltaText
+                                  delta={info.getValue<number>()}
+                              />
                           </div>
                       ),
                   },
                   {
-                      header: "Matchups",
+                      header: "Matchups Δ",
                       accessorFn: (suggestion) =>
-                          suggestion.draftResult.matchupRating.totalRating,
+                          componentWinrateDelta(
+                              suggestion,
+                              (result) => result.matchupRating.totalRating,
+                          ),
                       cell: (info) => (
                           <div class="flex justify-end">
-                              <RatingText rating={info.getValue<number>()} />
+                              <WinrateDeltaText
+                                  delta={info.getValue<number>()}
+                              />
                           </div>
                       ),
                   },
                   {
-                      header: "Duos",
+                      header: "Duos Δ",
                       accessorFn: (suggestion) =>
-                          suggestion.draftResult.allyDuoRating.totalRating,
+                          componentWinrateDelta(
+                              suggestion,
+                              (result) => result.allyDuoRating.totalRating,
+                          ),
                       cell: (info) => (
                           <div class="flex justify-end">
-                              <RatingText rating={info.getValue<number>()} />
+                              <WinrateDeltaText
+                                  delta={info.getValue<number>()}
+                              />
                           </div>
                       ),
                   },
               ] as ColumnDef<Suggestion>[])
             : []),
         {
-            header: "Winrate",
-            accessorFn: (suggestion) => suggestion.draftResult.totalRating,
+            header: "Winrate Δ",
+            accessorFn: (suggestion) =>
+                suggestion.draftResult.winrate -
+                (draftAnalysisBeforePick()?.winrate ?? 0.5),
             cell: (info) => (
                 <div class="flex justify-end">
-                    <RatingText rating={info.getValue<number>()} />
+                    <WinrateDeltaText delta={info.getValue<number>()} />
                 </div>
             ),
         },
