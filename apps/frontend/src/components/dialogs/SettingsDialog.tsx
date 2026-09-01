@@ -251,14 +251,11 @@ export default function SettingsDialog() {
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">Blindability</legend>
                     <p class="text-sm opacity-60">
-                        Reward champions with strong, consistent results across
-                        unknown teammates and opponents, weighted by how often
-                        each champion is played in that role. The score balances
-                        the average result against the least favorable 20% of
-                        likely picks. At 100%, it is calibrated to about one
-                        champion interaction, and sparse data stays close to
-                        neutral. Set a weight to 0% to ignore that kind of
-                        blindability.
+                        Account for expected results with unknown teammates and
+                        opponents, weighted by how often each champion is played
+                        in that role. Sparse interactions are already pulled
+                        toward neutral by the selected risk level. Set a weight
+                        to 0% to ignore that kind of unknown interaction.
                     </p>
                     <div class="mt-3 grid grid-cols-2 gap-4">
                         <label class="grid gap-1">

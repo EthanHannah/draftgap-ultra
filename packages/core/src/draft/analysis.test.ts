@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
     analyzeChampions,
+    analyzeDuo,
     analyzeDraft,
     analyzeDraftWithRoleUncertainty,
     analyzeDuos,
+    analyzeMatchup,
     analyzeMatchups,
 } from "./analysis";
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
@@ -207,6 +209,104 @@ describe("champion winrate influence", () => {
     });
 });
 
+describe("interaction sample-size shrinkage", () => {
+    test("trusts the same observed result more as its sample grows", () => {
+        const sparse = createDataset();
+        const dense = createDataset();
+        const denseTop = dense.championData.top.statsByRole[Role.Top];
+        const denseJungle = dense.championData.jungle.statsByRole[Role.Jungle];
+
+        denseTop.synergy[Role.Jungle].jungle = {
+            championKey: "jungle",
+            games: 1000,
+            wins: 600,
+        };
+        denseJungle.synergy[Role.Top].top = {
+            championKey: "top",
+            games: 1000,
+            wins: 600,
+        };
+        denseTop.matchup[Role.Jungle].jungle = {
+            championKey: "jungle",
+            games: 1000,
+            wins: 600,
+        };
+        denseJungle.matchup[Role.Top].top = {
+            championKey: "top",
+            games: 1000,
+            wins: 400,
+        };
+
+        const sparseDuo = analyzeDuo(
+            sparse,
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
+            1000,
+        );
+        const denseDuo = analyzeDuo(
+            dense,
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
+            1000,
+        );
+        const sparseMatchup = analyzeMatchup(
+            sparse,
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
+            1000,
+        );
+        const denseMatchup = analyzeMatchup(
+            dense,
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
+            1000,
+        );
+
+        expect(denseDuo.rating).toBeGreaterThan(sparseDuo.rating);
+        expect(denseMatchup.rating).toBeGreaterThan(sparseMatchup.rating);
+    });
+
+    test("trusts sparse interactions monotonically more at higher risk", () => {
+        const dataset = createDataset();
+        const priorGames = [3000, 2000, 1000, 500, 250];
+        const duoRatings = priorGames.map(
+            (prior) =>
+                analyzeDuo(
+                    dataset,
+                    Role.Top,
+                    "top",
+                    Role.Jungle,
+                    "jungle",
+                    prior,
+                ).rating,
+        );
+        const matchupRatings = priorGames.map(
+            (prior) =>
+                analyzeMatchup(
+                    dataset,
+                    Role.Top,
+                    "top",
+                    Role.Jungle,
+                    "jungle",
+                    prior,
+                ).rating,
+        );
+
+        for (let i = 1; i < priorGames.length; i++) {
+            expect(duoRatings[i]).toBeGreaterThan(duoRatings[i - 1]);
+            expect(matchupRatings[i]).toBeGreaterThan(matchupRatings[i - 1]);
+        }
+    });
+});
+
 describe("flex-pick uncertainty", () => {
     test("averages draft results across role assignments by probability", () => {
         const dataset = createDataset();
@@ -255,8 +355,8 @@ describe("flex-pick uncertainty", () => {
         expect(uncertain.winrate).toBeCloseTo(
             top.winrate * 0.75 + jungle.winrate * 0.25,
         );
-        expect(
-            uncertain.allyChampionRating.championResults[0].role,
-        ).toBe(Role.Top);
+        expect(uncertain.allyChampionRating.championResults[0].role).toBe(
+            Role.Top,
+        );
     });
 });

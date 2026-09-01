@@ -14,7 +14,7 @@ type FavouritePick = `${string}:${Role}`;
 const DEFAULT_CONFIG: DraftGapConfig = {
     // DRAFT CONFIG
     championWinrateInfluence: 100,
-    riskLevel: "medium",
+    riskLevel: "low",
     minGames: 1000,
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },

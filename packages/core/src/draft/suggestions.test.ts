@@ -150,7 +150,7 @@ function findTopSuggestion(
 }
 
 describe("suggestion blindability", () => {
-    test("rewards a smaller gap relative to same-role peers and sorts by adjusted winrate", () => {
+    test("uses expected interactions without charging an additional downside penalty", () => {
         const dataset = createBlindabilityDataset();
         const suggestions = getSuggestions(
             dataset,
@@ -168,25 +168,14 @@ describe("suggestion blindability", () => {
         expect(stable.blindabilityResult.matchupGap).toBeLessThan(
             volatile.blindabilityResult.matchupGap,
         );
-        expect(stable.blindabilityResult.synergyRating).toBeCloseTo(
-            (volatile.blindabilityResult.synergyGap / 4 / 9) *
-                stable.blindabilityResult.synergyConfidence,
+        expect(stable.blindabilityResult.synergyScore).toBeCloseTo(
+            volatile.blindabilityResult.synergyScore,
         );
-        expect(stable.blindabilityResult.matchupRating).toBeCloseTo(
-            (volatile.blindabilityResult.matchupGap / 4 / 9) *
-                stable.blindabilityResult.matchupConfidence,
+        expect(stable.blindabilityResult.matchupScore).toBeCloseTo(
+            volatile.blindabilityResult.matchupScore,
         );
-        expect(stable.blindabilityResult.totalRating).toBeGreaterThan(0);
-        expect(volatile.blindabilityResult.totalRating).toBeLessThan(0);
-        expect(
-            suggestions.findIndex(
-                (suggestion) => suggestion.championKey === "stable",
-            ),
-        ).toBeLessThan(
-            suggestions.findIndex(
-                (suggestion) => suggestion.championKey === "volatile",
-            ),
-        );
+        expect(stable.blindabilityResult.totalRating).toBeCloseTo(0);
+        expect(volatile.blindabilityResult.totalRating).toBeCloseTo(0);
     });
 
     test("rewards consistently strong interactions over consistently weak ones", () => {
@@ -238,6 +227,12 @@ describe("suggestion blindability", () => {
         );
         expect(strong.blindabilityResult.totalRating).toBeGreaterThan(0);
         expect(weak.blindabilityResult.totalRating).toBeLessThan(0);
+        expect(strong.blindabilityResult.synergyRating).toBeCloseTo(
+            strong.blindabilityResult.synergyScore,
+        );
+        expect(strong.blindabilityResult.matchupRating).toBeCloseTo(
+            strong.blindabilityResult.matchupScore,
+        );
     });
 
     test("does not penalize a champion for gaining an unusually strong matchup", () => {
@@ -296,8 +291,7 @@ describe("suggestion blindability", () => {
         makeViable(dataset, "rare", Role.Middle, 1000);
 
         for (const role of [Role.Jungle, Role.Middle]) {
-            const setInteraction =
-                role === Role.Jungle ? setDuo : setMatchup;
+            const setInteraction = role === Role.Jungle ? setDuo : setMatchup;
 
             setInteraction(
                 dataset,
@@ -323,30 +317,9 @@ describe("suggestion blindability", () => {
                 role,
                 40,
             );
-            setInteraction(
-                dataset,
-                "rareFavored",
-                Role.Top,
-                "rare",
-                role,
-                60,
-            );
-            setInteraction(
-                dataset,
-                "neutral",
-                Role.Top,
-                "common",
-                role,
-                50,
-            );
-            setInteraction(
-                dataset,
-                "neutral",
-                Role.Top,
-                "rare",
-                role,
-                50,
-            );
+            setInteraction(dataset, "rareFavored", Role.Top, "rare", role, 60);
+            setInteraction(dataset, "neutral", Role.Top, "common", role, 50);
+            setInteraction(dataset, "neutral", Role.Top, "rare", role, 50);
         }
 
         const suggestions = getSuggestions(
@@ -356,10 +329,7 @@ describe("suggestion blindability", () => {
             new Map(),
             defaultConfig,
         );
-        const commonFavored = findTopSuggestion(
-            suggestions,
-            "commonFavored",
-        );
+        const commonFavored = findTopSuggestion(suggestions, "commonFavored");
         const rareFavored = findTopSuggestion(suggestions, "rareFavored");
         const neutral = findTopSuggestion(suggestions, "neutral");
 
@@ -601,14 +571,7 @@ describe("flex-pick suggestion uncertainty", () => {
         makeViable(dataset, "candidate", Role.Top);
         makeViable(dataset, "flexAlly", Role.Top);
         makeViable(dataset, "flexAlly", Role.Jungle);
-        setDuo(
-            dataset,
-            "candidate",
-            Role.Top,
-            "flexAlly",
-            Role.Jungle,
-            60,
-        );
+        setDuo(dataset, "candidate", Role.Top, "flexAlly", Role.Jungle, 60);
         const config = {
             ...defaultConfig,
             synergyBlindabilityWeight: 0,

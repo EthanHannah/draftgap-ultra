@@ -49,10 +49,6 @@ type RawSuggestion = Omit<Suggestion, "blindabilityResult"> & {
     matchupConfidence: number;
 };
 
-// A suggested champion can have four unknown allies and five unknown opponents.
-// Calibrate their summed risk-adjusted scores to one normal interaction so
-// blindability remains a secondary modifier while still fading as slots fill.
-const MAX_UNKNOWN_INTERACTIONS = ROLES.length * 2 - 1;
 const BLINDABILITY_LOWER_TAIL_FRACTION = 0.2;
 
 type WeightedInteraction = {
@@ -74,7 +70,7 @@ function isEligibleInRole(
     return (getStats(dataset, championKey, role).games / 30) * 7 >= minGames;
 }
 
-function getBlindabilityScore(interactions: WeightedInteraction[]) {
+function getExpectedInteractionScore(interactions: WeightedInteraction[]) {
     const weightedInteractions = interactions.filter(
         ({ rating, weight }) =>
             Number.isFinite(rating) && Number.isFinite(weight) && weight > 0,
@@ -117,8 +113,9 @@ function getBlindabilityScore(interactions: WeightedInteraction[]) {
     const lowerTailMean = lowerTailRating / lowerTailWeight;
     const gap = Math.max(0, mean - lowerTailMean);
 
-    // Blend expected performance and downside performance evenly.
-    return { gap, score: mean - gap / 2 };
+    // Rank by the expected interaction result. Keep the lower-tail gap as a
+    // diagnostic, but do not charge a risk premium on top of Bayesian shrinkage.
+    return { gap, score: mean };
 }
 
 function getWeight(value: number) {
@@ -143,8 +140,7 @@ function getInteractionConfidence(
         0,
     );
     const weightedGames = weightedInteractions.reduce(
-        (total, interaction) =>
-            total + interaction.games * interaction.weight,
+        (total, interaction) => total + interaction.games * interaction.weight,
         0,
     );
 
@@ -324,10 +320,7 @@ export function getSuggestionsWithRoleUncertainty(
                 if (roleProbability === 0) continue;
 
                 const results = availableChampionsByRole[teammateRole]
-                    .filter(
-                        (teammate) =>
-                            teammate.championKey !== championKey,
-                    )
+                    .filter((teammate) => teammate.championKey !== championKey)
                     .map((teammate) => ({
                         result: getDuoResult(
                             championKey,
@@ -337,7 +330,7 @@ export function getSuggestionsWithRoleUncertainty(
                         ),
                         weight: teammate.pickWeight,
                     }));
-                const blindability = getBlindabilityScore(
+                const blindability = getExpectedInteractionScore(
                     results.map(({ result, weight }) => ({
                         rating: result.rating,
                         weight,
@@ -361,10 +354,7 @@ export function getSuggestionsWithRoleUncertainty(
                 if (roleProbability === 0) continue;
 
                 const results = availableChampionsByRole[opponentRole]
-                    .filter(
-                        (opponent) =>
-                            opponent.championKey !== championKey,
-                    )
+                    .filter((opponent) => opponent.championKey !== championKey)
                     .map((opponent) => ({
                         result: getMatchupResult(
                             championKey,
@@ -374,7 +364,7 @@ export function getSuggestionsWithRoleUncertainty(
                         ),
                         weight: opponent.pickWeight,
                     }));
-                const blindability = getBlindabilityScore(
+                const blindability = getExpectedInteractionScore(
                     results.map(({ result, weight }) => ({
                         rating: result.rating,
                         weight,
@@ -433,52 +423,16 @@ export function getSuggestionsWithRoleUncertainty(
         }
     }
 
-    const scoreTotalsByRole = new Map<
-        Role,
-        {
-            synergyConfidence: number;
-            matchupConfidence: number;
-            weightedSynergyScore: number;
-            weightedMatchupScore: number;
-        }
-    >();
-
-    for (const suggestion of rawSuggestions) {
-        if (bannedChampions.has(suggestion.championKey)) continue;
-
-        const totals = scoreTotalsByRole.get(suggestion.role) ?? {
-            synergyConfidence: 0,
-            matchupConfidence: 0,
-            weightedSynergyScore: 0,
-            weightedMatchupScore: 0,
-        };
-        totals.synergyConfidence += suggestion.synergyConfidence;
-        totals.matchupConfidence += suggestion.matchupConfidence;
-        totals.weightedSynergyScore +=
-            suggestion.synergyScore * suggestion.synergyConfidence;
-        totals.weightedMatchupScore +=
-            suggestion.matchupScore * suggestion.matchupConfidence;
-        scoreTotalsByRole.set(suggestion.role, totals);
-    }
-
     const suggestions = rawSuggestions.map<Suggestion>((suggestion) => {
-        const roleTotals = scoreTotalsByRole.get(suggestion.role);
-        const meanSynergyScore = roleTotals?.synergyConfidence
-            ? roleTotals.weightedSynergyScore / roleTotals.synergyConfidence
-            : suggestion.synergyScore;
-        const meanMatchupScore = roleTotals?.matchupConfidence
-            ? roleTotals.weightedMatchupScore / roleTotals.matchupConfidence
-            : suggestion.matchupScore;
+        // Each interaction rating has already been shrunk toward its expected
+        // result by analyzeDuo/analyzeMatchup. Applying aggregate confidence
+        // here would discount the same sample-size uncertainty a second time.
         const synergyRating =
-            (suggestion.synergyScore - meanSynergyScore) *
-            suggestion.synergyConfidence *
-            (getWeight(config.synergyBlindabilityWeight) /
-                MAX_UNKNOWN_INTERACTIONS);
+            suggestion.synergyScore *
+            getWeight(config.synergyBlindabilityWeight);
         const matchupRating =
-            (suggestion.matchupScore - meanMatchupScore) *
-            suggestion.matchupConfidence *
-            (getWeight(config.matchupBlindabilityWeight) /
-                MAX_UNKNOWN_INTERACTIONS);
+            suggestion.matchupScore *
+            getWeight(config.matchupBlindabilityWeight);
         const totalRating = synergyRating + matchupRating;
         const adjustedRating =
             winrateToRating(suggestion.draftResult.winrate) + totalRating;
