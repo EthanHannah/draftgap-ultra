@@ -9,7 +9,7 @@ import {
 import { useDraft } from "./DraftContext";
 import { useUser } from "./UserContext";
 import { getTeamDamageDistribution } from "@draftgap/core/src/damage-distribution/damage-distribution";
-import { analyzeDraft } from "@draftgap/core/src/draft/analysis";
+import { analyzeDraftWithRoleUncertainty } from "@draftgap/core/src/draft/analysis";
 import { Team } from "@draftgap/core/src/models/Team";
 import { PickData } from "@draftgap/core/src/models/dataset/PickData";
 import predictRoles, {
@@ -82,21 +82,21 @@ export function createDraftAnalysisContext() {
 
     const allyDraftAnalysis = createMemo(() => {
         if (!isLoaded()) return undefined;
-        return analyzeDraft(
+        return analyzeDraftWithRoleUncertainty(
             dataset()!,
             dataset30Days()!,
-            allyTeamComps()[0][0],
-            opponentTeamComps()[0][0],
+            allyTeamComps(),
+            opponentTeamComps(),
             draftAnalysisConfig(),
         );
     });
     const opponentDraftAnalysis = createMemo(() => {
         if (!isLoaded()) return undefined;
-        return analyzeDraft(
+        return analyzeDraftWithRoleUncertainty(
             dataset()!,
             dataset30Days()!,
-            opponentTeamComps()[0][0],
-            allyTeamComps()[0][0],
+            opponentTeamComps(),
+            allyTeamComps(),
             draftAnalysisConfig(),
         );
     });

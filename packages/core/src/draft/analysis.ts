@@ -17,6 +17,236 @@ export type DraftResult = {
     winrate: number;
 };
 
+export type WeightedTeamComp = [Map<Role, string>, number];
+
+export function normalizeTeamComps(teamComps: WeightedTeamComp[]) {
+    const validTeamComps = teamComps.filter(
+        ([, probability]) => Number.isFinite(probability) && probability > 0,
+    );
+    if (validTeamComps.length === 0) {
+        if (teamComps.length === 0) {
+            return [[new Map<Role, string>(), 1]] satisfies WeightedTeamComp[];
+        }
+
+        return teamComps.map(
+            ([teamComp]) =>
+                [teamComp, 1 / teamComps.length] as WeightedTeamComp,
+        );
+    }
+
+    const totalProbability = validTeamComps.reduce(
+        (total, [, probability]) => total + probability,
+        0,
+    );
+
+    return validTeamComps.map(
+        ([teamComp, probability]) =>
+            [teamComp, probability / totalProbability] as WeightedTeamComp,
+    );
+}
+
+export type WeightedDraftResult = {
+    result: DraftResult;
+    weight: number;
+};
+
+function mostLikelyValue<T>(weights: Map<T, number>) {
+    return [...weights.entries()].reduce((best, entry) =>
+        entry[1] > best[1] ? entry : best,
+    )[0];
+}
+
+export function aggregateDraftResults(results: WeightedDraftResult[]) {
+    const totalWeight = results.reduce(
+        (total, { weight }) => total + weight,
+        0,
+    );
+    if (totalWeight === 0) {
+        return {
+            allyChampionRating: { championResults: [], totalRating: 0 },
+            enemyChampionRating: { championResults: [], totalRating: 0 },
+            allyDuoRating: { duoResults: [], totalRating: 0 },
+            enemyDuoRating: { duoResults: [], totalRating: 0 },
+            matchupRating: { matchupResults: [], totalRating: 0 },
+            totalRating: 0,
+            winrate: 0.5,
+        } satisfies DraftResult;
+    }
+
+    const normalizedResults = results.map(({ result, weight }) => ({
+        result,
+        weight: weight / totalWeight,
+    }));
+
+    const aggregateChampions = (
+        getResults: (result: DraftResult) => AnalyzeChampionsResult,
+    ) => {
+        const byChampion = new Map<
+            string,
+            AnalyzeChampionResult & { roleWeights: Map<Role, number> }
+        >();
+
+        for (const { result, weight } of normalizedResults) {
+            for (const champion of getResults(result).championResults) {
+                const aggregate = byChampion.get(champion.championKey) ?? {
+                    ...champion,
+                    rating: 0,
+                    wins: 0,
+                    games: 0,
+                    roleWeights: new Map<Role, number>(),
+                };
+                aggregate.rating += champion.rating * weight;
+                aggregate.wins += champion.wins * weight;
+                aggregate.games += champion.games * weight;
+                aggregate.roleWeights.set(
+                    champion.role,
+                    (aggregate.roleWeights.get(champion.role) ?? 0) + weight,
+                );
+                byChampion.set(champion.championKey, aggregate);
+            }
+        }
+
+        return {
+            championResults: [...byChampion.values()].map(
+                ({ roleWeights, ...champion }) => ({
+                    ...champion,
+                    role: mostLikelyValue(roleWeights),
+                }),
+            ),
+            totalRating: normalizedResults.reduce(
+                (total, { result, weight }) =>
+                    total + getResults(result).totalRating * weight,
+                0,
+            ),
+        };
+    };
+
+    const aggregateDuos = (
+        getResults: (result: DraftResult) => AnalyzeDuosResult,
+    ) => {
+        const byDuo = new Map<
+            string,
+            AnalyzeDuoResult & { roleWeights: Map<string, number> }
+        >();
+
+        for (const { result, weight } of normalizedResults) {
+            for (const rawDuo of getResults(result).duoResults) {
+                const reverse = rawDuo.championKeyA > rawDuo.championKeyB;
+                const duo = reverse
+                    ? {
+                          ...rawDuo,
+                          roleA: rawDuo.roleB,
+                          championKeyA: rawDuo.championKeyB,
+                          roleB: rawDuo.roleA,
+                          championKeyB: rawDuo.championKeyA,
+                      }
+                    : rawDuo;
+                const key = `${duo.championKeyA}:${duo.championKeyB}`;
+                const aggregate = byDuo.get(key) ?? {
+                    ...duo,
+                    rating: 0,
+                    wins: 0,
+                    games: 0,
+                    roleWeights: new Map<string, number>(),
+                };
+                aggregate.rating += duo.rating * weight;
+                aggregate.wins += duo.wins * weight;
+                aggregate.games += duo.games * weight;
+                const roleKey = `${duo.roleA}:${duo.roleB}`;
+                aggregate.roleWeights.set(
+                    roleKey,
+                    (aggregate.roleWeights.get(roleKey) ?? 0) + weight,
+                );
+                byDuo.set(key, aggregate);
+            }
+        }
+
+        return {
+            duoResults: [...byDuo.values()].map(
+                ({ roleWeights, ...duo }) => {
+                    const [roleA, roleB] = mostLikelyValue(roleWeights)
+                        .split(":")
+                        .map(Number) as [Role, Role];
+                    return { ...duo, roleA, roleB };
+                },
+            ),
+            totalRating: normalizedResults.reduce(
+                (total, { result, weight }) =>
+                    total + getResults(result).totalRating * weight,
+                0,
+            ),
+        };
+    };
+
+    const byMatchup = new Map<
+        string,
+        AnalyzeMatchupResult & { roleWeights: Map<string, number> }
+    >();
+    for (const { result, weight } of normalizedResults) {
+        for (const matchup of result.matchupRating.matchupResults) {
+            const key = `${matchup.championKeyA}:${matchup.championKeyB}`;
+            const aggregate = byMatchup.get(key) ?? {
+                ...matchup,
+                rating: 0,
+                wins: 0,
+                games: 0,
+                roleWeights: new Map<string, number>(),
+            };
+            aggregate.rating += matchup.rating * weight;
+            aggregate.wins += matchup.wins * weight;
+            aggregate.games += matchup.games * weight;
+            const roleKey = `${matchup.roleA}:${matchup.roleB}`;
+            aggregate.roleWeights.set(
+                roleKey,
+                (aggregate.roleWeights.get(roleKey) ?? 0) + weight,
+            );
+            byMatchup.set(key, aggregate);
+        }
+    }
+
+    const allyChampionRating = aggregateChampions(
+        (result) => result.allyChampionRating,
+    );
+    const enemyChampionRating = aggregateChampions(
+        (result) => result.enemyChampionRating,
+    );
+    const allyDuoRating = aggregateDuos((result) => result.allyDuoRating);
+    const enemyDuoRating = aggregateDuos((result) => result.enemyDuoRating);
+    const matchupRating = {
+        matchupResults: [...byMatchup.values()].map(
+            ({ roleWeights, ...matchup }) => {
+                const [roleA, roleB] = mostLikelyValue(roleWeights)
+                    .split(":")
+                    .map(Number) as [Role, Role];
+                return { ...matchup, roleA, roleB };
+            },
+        ),
+        totalRating: normalizedResults.reduce(
+            (total, { result, weight }) =>
+                total + result.matchupRating.totalRating * weight,
+            0,
+        ),
+    };
+    const totalRating = normalizedResults.reduce(
+        (total, { result, weight }) => total + result.totalRating * weight,
+        0,
+    );
+    const winrate = normalizedResults.reduce(
+        (total, { result, weight }) => total + result.winrate * weight,
+        0,
+    );
+
+    return {
+        allyChampionRating,
+        enemyChampionRating,
+        allyDuoRating,
+        enemyDuoRating,
+        matchupRating,
+        totalRating,
+        winrate,
+    };
+}
+
 export interface AnalyzeDraftConfig {
     championWinrateInfluence: number;
     riskLevel: RiskLevel;
@@ -104,6 +334,29 @@ export function analyzeDraft(
         totalRating,
         winrate,
     };
+}
+
+export function analyzeDraftWithRoleUncertainty(
+    dataset: Dataset,
+    fullDataset: Dataset,
+    teamComps: WeightedTeamComp[],
+    enemyComps: WeightedTeamComp[],
+    config: AnalyzeDraftConfig,
+) {
+    const normalizedTeamComps = normalizeTeamComps(teamComps);
+    const normalizedEnemyComps = normalizeTeamComps(enemyComps);
+    const results: WeightedDraftResult[] = [];
+
+    for (const [team, teamProbability] of normalizedTeamComps) {
+        for (const [enemy, enemyProbability] of normalizedEnemyComps) {
+            results.push({
+                result: analyzeDraft(dataset, fullDataset, team, enemy, config),
+                weight: teamProbability * enemyProbability,
+            });
+        }
+    }
+
+    return aggregateDraftResults(results);
 }
 
 export type AnalyzeChampionResult = {

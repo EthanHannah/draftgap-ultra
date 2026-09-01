@@ -1,23 +1,23 @@
 import { JSXElement, createContext, createMemo, useContext } from "solid-js";
-import { getSuggestions } from "@draftgap/core/src/draft/suggestions";
+import { getSuggestionsWithRoleUncertainty } from "@draftgap/core/src/draft/suggestions";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
 import { useDraft } from "./DraftContext";
 
 export function createDraftSuggestionsContext() {
     const { isLoaded, dataset, dataset30Days } = useDataset();
-    const { suggestionConfig, allyTeamComp, opponentTeamComp } =
+    const { suggestionConfig, allyTeamComps, opponentTeamComps } =
         useDraftAnalysis();
     const { bans } = useDraft();
 
     const allySuggestions = createMemo(() => {
         if (!isLoaded()) return [];
 
-        return getSuggestions(
+        return getSuggestionsWithRoleUncertainty(
             dataset()!,
             dataset30Days()!,
-            allyTeamComp(),
-            opponentTeamComp(),
+            allyTeamComps(),
+            opponentTeamComps(),
             suggestionConfig(),
             bans,
         );
@@ -26,11 +26,11 @@ export function createDraftSuggestionsContext() {
     const opponentSuggestions = createMemo(() => {
         if (!isLoaded()) return [];
 
-        return getSuggestions(
+        return getSuggestionsWithRoleUncertainty(
             dataset()!,
             dataset30Days()!,
-            opponentTeamComp(),
-            allyTeamComp(),
+            opponentTeamComps(),
+            allyTeamComps(),
             suggestionConfig(),
             bans,
         );

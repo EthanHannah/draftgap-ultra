@@ -3,7 +3,11 @@ import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { ChampionData } from "../models/dataset/ChampionData";
 import { Dataset } from "../models/dataset/Dataset";
 import { DEFAULT_ROLE_WEIGHTS, Role, ROLES } from "../models/Role";
-import { SuggestionConfig, getSuggestions } from "./suggestions";
+import {
+    SuggestionConfig,
+    getSuggestions,
+    getSuggestionsWithRoleUncertainty,
+} from "./suggestions";
 
 function createChampion(key: string): ChampionData {
     return {
@@ -515,5 +519,130 @@ describe("suggestion blindability", () => {
             true,
         );
         expect(empty).toEqual([]);
+    });
+});
+
+describe("flex-pick suggestion uncertainty", () => {
+    test("weights a suggestion against every possible enemy role", () => {
+        const dataset = createDataset(["candidate", "flexEnemy"]);
+        makeViable(dataset, "candidate", Role.Top);
+        makeViable(dataset, "flexEnemy", Role.Middle);
+        makeViable(dataset, "flexEnemy", Role.Support);
+        setMatchup(
+            dataset,
+            "candidate",
+            Role.Top,
+            "flexEnemy",
+            Role.Middle,
+            60,
+        );
+        setMatchup(
+            dataset,
+            "candidate",
+            Role.Top,
+            "flexEnemy",
+            Role.Support,
+            40,
+        );
+        const config = {
+            ...defaultConfig,
+            synergyBlindabilityWeight: 0,
+            matchupBlindabilityWeight: 0,
+        };
+        const middle = findTopSuggestion(
+            getSuggestions(
+                dataset,
+                dataset,
+                new Map(),
+                new Map([[Role.Middle, "flexEnemy"]]),
+                config,
+            ),
+            "candidate",
+        );
+        const support = findTopSuggestion(
+            getSuggestions(
+                dataset,
+                dataset,
+                new Map(),
+                new Map([[Role.Support, "flexEnemy"]]),
+                config,
+            ),
+            "candidate",
+        );
+        const uncertain = findTopSuggestion(
+            getSuggestionsWithRoleUncertainty(
+                dataset,
+                dataset,
+                [[new Map(), 1]],
+                [
+                    [new Map([[Role.Middle, "flexEnemy"]]), 0.75],
+                    [new Map([[Role.Support, "flexEnemy"]]), 0.25],
+                ],
+                config,
+            ),
+            "candidate",
+        );
+
+        expect(uncertain.draftResult.totalRating).toBeCloseTo(
+            middle.draftResult.totalRating * 0.75 +
+                support.draftResult.totalRating * 0.25,
+        );
+        expect(uncertain.draftResult.winrate).toBeCloseTo(
+            middle.draftResult.winrate * 0.75 +
+                support.draftResult.winrate * 0.25,
+        );
+        expect(uncertain.blindabilityResult.adjustedWinrate).toBeCloseTo(
+            uncertain.draftResult.winrate,
+        );
+    });
+
+    test("conditions ally assignments on the suggested role being open", () => {
+        const dataset = createDataset(["candidate", "flexAlly"]);
+        makeViable(dataset, "candidate", Role.Top);
+        makeViable(dataset, "flexAlly", Role.Top);
+        makeViable(dataset, "flexAlly", Role.Jungle);
+        setDuo(
+            dataset,
+            "candidate",
+            Role.Top,
+            "flexAlly",
+            Role.Jungle,
+            60,
+        );
+        const config = {
+            ...defaultConfig,
+            synergyBlindabilityWeight: 0,
+            matchupBlindabilityWeight: 0,
+        };
+        const jungle = findTopSuggestion(
+            getSuggestions(
+                dataset,
+                dataset,
+                new Map([[Role.Jungle, "flexAlly"]]),
+                new Map(),
+                config,
+            ),
+            "candidate",
+        );
+        const uncertain = findTopSuggestion(
+            getSuggestionsWithRoleUncertainty(
+                dataset,
+                dataset,
+                [
+                    [new Map([[Role.Top, "flexAlly"]]), 0.75],
+                    [new Map([[Role.Jungle, "flexAlly"]]), 0.25],
+                ],
+                [[new Map(), 1]],
+                config,
+            ),
+            "candidate",
+        );
+
+        expect(uncertain.draftResult.totalRating).toBeCloseTo(
+            jungle.draftResult.totalRating,
+        );
+        expect(uncertain.draftResult.winrate).toBeCloseTo(
+            jungle.draftResult.winrate,
+        );
     });
 });

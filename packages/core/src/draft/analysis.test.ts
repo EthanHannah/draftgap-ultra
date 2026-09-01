@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeChampions, analyzeDuos, analyzeMatchups } from "./analysis";
+import {
+    analyzeChampions,
+    analyzeDraft,
+    analyzeDraftWithRoleUncertainty,
+    analyzeDuos,
+    analyzeMatchups,
+} from "./analysis";
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { ChampionData } from "../models/dataset/ChampionData";
 import { Dataset } from "../models/dataset/Dataset";
@@ -198,5 +204,59 @@ describe("champion winrate influence", () => {
             fullRating.championResults[0].rating * 0.5,
         );
         expect(zeroRating.totalRating).toBe(0);
+    });
+});
+
+describe("flex-pick uncertainty", () => {
+    test("averages draft results across role assignments by probability", () => {
+        const dataset = createDataset();
+        const topStats = dataset.championData.top.statsByRole[Role.Top];
+        const jungleStats = dataset.championData.top.statsByRole[Role.Jungle];
+        topStats.games = 100;
+        topStats.wins = 60;
+        jungleStats.games = 100;
+        jungleStats.wins = 40;
+        const config = {
+            championWinrateInfluence: 100,
+            riskLevel: "medium" as const,
+            minGames: 0,
+            matchupRoleWeights: DEFAULT_ROLE_WEIGHTS,
+            duoRoleWeights: DEFAULT_ROLE_WEIGHTS,
+        };
+        const top = analyzeDraft(
+            dataset,
+            dataset,
+            new Map([[Role.Top, "top"]]),
+            new Map(),
+            config,
+        );
+        const jungle = analyzeDraft(
+            dataset,
+            dataset,
+            new Map([[Role.Jungle, "top"]]),
+            new Map(),
+            config,
+        );
+
+        const uncertain = analyzeDraftWithRoleUncertainty(
+            dataset,
+            dataset,
+            [
+                [new Map([[Role.Top, "top"]]), 0.75],
+                [new Map([[Role.Jungle, "top"]]), 0.25],
+            ],
+            [[new Map(), 1]],
+            config,
+        );
+
+        expect(uncertain.totalRating).toBeCloseTo(
+            top.totalRating * 0.75 + jungle.totalRating * 0.25,
+        );
+        expect(uncertain.winrate).toBeCloseTo(
+            top.winrate * 0.75 + jungle.winrate * 0.25,
+        );
+        expect(
+            uncertain.allyChampionRating.championResults[0].role,
+        ).toBe(Role.Top);
     });
 });

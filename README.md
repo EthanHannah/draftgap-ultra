@@ -10,6 +10,8 @@ This repo enhances the original DraftGap with extra controls and analysis featur
   - This lets you choose which specific roles you want to counter/synergize with
 - Configurable blindability scoring
   - This rewards champions with consistently strong synergies and matchups when picks are still unknown, while accounting for data confidence
+- Flex-pick uncertainty analysis
+  - This weights every valid role assignment by its likelihood instead of assuming each flexible champion is in its single most likely role
 
 ---
 

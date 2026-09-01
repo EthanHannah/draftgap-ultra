@@ -1,5 +1,5 @@
 import { For } from "solid-js";
-import { ratingToWinrate } from "@draftgap/core/src/rating/ratings";
+import { winrateToRating } from "@draftgap/core/src/rating/ratings";
 import { CountUp } from "../CountUp";
 import { DamageDistributionBar } from "./DamageDistributionBar";
 import { Pick } from "./Pick";
@@ -21,10 +21,10 @@ export function TeamSidebar(props: IProps) {
         opponentDraftAnalysis: opponentDraftResult,
     } = useDraftAnalysis();
 
-    const rating = () =>
+    const winrate = () =>
         props.team === "ally"
-            ? allyDraftResult()?.totalRating
-            : opponentDraftResult()?.totalRating;
+            ? allyDraftResult()?.winrate
+            : opponentDraftResult()?.winrate;
 
     return (
         <div class="bg-primary flex flex-col h-full relative">
@@ -42,10 +42,10 @@ export function TeamSidebar(props: IProps) {
                     {props.team.toUpperCase()}
                     <br />
                     <CountUp
-                        value={rating() ? ratingToWinrate(rating()!) : 0.5}
+                        value={winrate() ?? 0.5}
                         formatFn={(value) => (value * 100).toFixed(2)}
                         class={`${getRatingClass(
-                            rating() ?? 0,
+                            winrateToRating(winrate() ?? 0.5),
                         )} transition-colors duration-500`}
                         style={{
                             "font-variant-numeric": "tabular-nums",

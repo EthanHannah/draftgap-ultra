@@ -1,6 +1,6 @@
 import { Role, ROLES } from "../models/Role";
 import { Dataset } from "../models/dataset/Dataset";
-import { ratingToWinrate } from "../rating/ratings";
+import { ratingToWinrate, winrateToRating } from "../rating/ratings";
 import { priorGamesByRiskLevel } from "../risk/risk-level";
 import {
     DraftResult,
@@ -8,6 +8,9 @@ import {
     analyzeDraft,
     analyzeDuo,
     analyzeMatchup,
+    aggregateDraftResults,
+    normalizeTeamComps,
+    WeightedTeamComp,
 } from "./analysis";
 import { getStats } from "./utils";
 
@@ -156,10 +159,32 @@ export function getSuggestions(
     config: SuggestionConfig,
     bannedChampionKeys: Iterable<string> = [],
 ) {
-    const remainingRoles = ROLES.filter((role) => !team.has(role));
-    const remainingEnemyRoles = ROLES.filter((role) => !enemy.has(role));
-    const enemyChampions = new Set(enemy.values());
-    const allyChampions = new Set(team.values());
+    return getSuggestionsWithRoleUncertainty(
+        dataset,
+        synergyMatchupDataset,
+        [[team, 1]],
+        [[enemy, 1]],
+        config,
+        bannedChampionKeys,
+    );
+}
+
+export function getSuggestionsWithRoleUncertainty(
+    dataset: Dataset,
+    synergyMatchupDataset: Dataset,
+    teamComps: WeightedTeamComp[],
+    enemyComps: WeightedTeamComp[],
+    config: SuggestionConfig,
+    bannedChampionKeys: Iterable<string> = [],
+) {
+    const normalizedTeamComps = normalizeTeamComps(teamComps);
+    const normalizedEnemyComps = normalizeTeamComps(enemyComps);
+    const enemyChampions = new Set(
+        normalizedEnemyComps.flatMap(([enemy]) => [...enemy.values()]),
+    );
+    const allyChampions = new Set(
+        normalizedTeamComps.flatMap(([team]) => [...team.values()]),
+    );
     const bannedChampions = new Set(bannedChampionKeys);
     const unavailableChampions = new Set([
         ...enemyChampions,
@@ -245,12 +270,29 @@ export function getSuggestions(
 
     const rawSuggestions: RawSuggestion[] = [];
 
+    const enemyOpenRoleProbability = Object.fromEntries(
+        ROLES.map((role) => [
+            role,
+            normalizedEnemyComps.reduce(
+                (probability, [enemy, weight]) =>
+                    probability + (enemy.has(role) ? 0 : weight),
+                0,
+            ),
+        ]),
+    ) as Record<Role, number>;
+
     for (const championKey of Object.keys(dataset.championData)) {
         if (enemyChampions.has(championKey) || allyChampions.has(championKey))
             continue;
 
-        for (const role of remainingRoles) {
-            if (team.has(role)) continue;
+        for (const role of ROLES) {
+            const roleCompatibleTeamComps = normalizedTeamComps.filter(
+                ([team]) => !team.has(role),
+            );
+            if (roleCompatibleTeamComps.length === 0) continue;
+            const compatibleTeamComps = normalizeTeamComps(
+                roleCompatibleTeamComps,
+            );
             if (
                 !isEligibleInRole(
                     synergyMatchupDataset,
@@ -261,13 +303,26 @@ export function getSuggestions(
             )
                 continue;
 
-            const unknownAllyRoles = remainingRoles.filter(
-                (unknownRole) => unknownRole !== role,
-            );
+            const allyOpenRoleProbability = Object.fromEntries(
+                ROLES.map((unknownRole) => [
+                    unknownRole,
+                    unknownRole === role
+                        ? 0
+                        : compatibleTeamComps.reduce(
+                              (probability, [team, weight]) =>
+                                  probability +
+                                  (team.has(unknownRole) ? 0 : weight),
+                              0,
+                          ),
+                ]),
+            ) as Record<Role, number>;
             let synergyGap = 0;
             let synergyScore = 0;
             const synergyInteractions: { games: number; weight: number }[] = [];
-            for (const teammateRole of unknownAllyRoles) {
+            for (const teammateRole of ROLES) {
+                const roleProbability = allyOpenRoleProbability[teammateRole];
+                if (roleProbability === 0) continue;
+
                 const results = availableChampionsByRole[teammateRole]
                     .filter(
                         (teammate) =>
@@ -288,12 +343,12 @@ export function getSuggestions(
                         weight,
                     })),
                 );
-                synergyGap += blindability.gap;
-                synergyScore += blindability.score;
+                synergyGap += blindability.gap * roleProbability;
+                synergyScore += blindability.score * roleProbability;
                 synergyInteractions.push(
                     ...results.map(({ result, weight }) => ({
                         games: result.games,
-                        weight,
+                        weight: weight * roleProbability,
                     })),
                 );
             }
@@ -301,7 +356,10 @@ export function getSuggestions(
             let matchupGap = 0;
             let matchupScore = 0;
             const matchupInteractions: { games: number; weight: number }[] = [];
-            for (const opponentRole of remainingEnemyRoles) {
+            for (const opponentRole of ROLES) {
+                const roleProbability = enemyOpenRoleProbability[opponentRole];
+                if (roleProbability === 0) continue;
+
                 const results = availableChampionsByRole[opponentRole]
                     .filter(
                         (opponent) =>
@@ -322,12 +380,12 @@ export function getSuggestions(
                         weight,
                     })),
                 );
-                matchupGap += blindability.gap;
-                matchupScore += blindability.score;
+                matchupGap += blindability.gap * roleProbability;
+                matchupScore += blindability.score * roleProbability;
                 matchupInteractions.push(
                     ...results.map(({ result, weight }) => ({
                         games: result.games,
-                        weight,
+                        weight: weight * roleProbability,
                     })),
                 );
             }
@@ -341,15 +399,25 @@ export function getSuggestions(
                 priorGames,
             );
 
-            team.set(role, championKey);
-            const draftResult = analyzeDraft(
-                dataset,
-                synergyMatchupDataset,
-                team,
-                enemy,
-                config,
+            const draftResults = compatibleTeamComps.flatMap(
+                ([team, teamProbability]) =>
+                    normalizedEnemyComps.map(([enemy, enemyProbability]) => {
+                        const teamWithSuggestion = new Map(team);
+                        teamWithSuggestion.set(role, championKey);
+
+                        return {
+                            result: analyzeDraft(
+                                dataset,
+                                synergyMatchupDataset,
+                                teamWithSuggestion,
+                                enemy,
+                                config,
+                            ),
+                            weight: teamProbability * enemyProbability,
+                        };
+                    }),
             );
-            team.delete(role);
+            const draftResult = aggregateDraftResults(draftResults);
 
             rawSuggestions.push({
                 championKey,
@@ -412,7 +480,8 @@ export function getSuggestions(
             (getWeight(config.matchupBlindabilityWeight) /
                 MAX_UNKNOWN_INTERACTIONS);
         const totalRating = synergyRating + matchupRating;
-        const adjustedRating = suggestion.draftResult.totalRating + totalRating;
+        const adjustedRating =
+            winrateToRating(suggestion.draftResult.winrate) + totalRating;
 
         return {
             championKey: suggestion.championKey,
