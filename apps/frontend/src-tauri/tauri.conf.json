@@ -60,6 +60,7 @@
                 "height": 850,
                 "resizable": true,
                 "title": "DraftGap",
+                "visible": false,
                 "width": 1600,
                 "useHttpsScheme": true
             }
