@@ -68,7 +68,7 @@ export function createDraftAnalysisContext() {
     const opponentRoles = createMemo(() => predictRoles(opponentTeamComps()));
 
     const draftAnalysisConfig = () => ({
-        ignoreChampionWinrates: config.ignoreChampionWinrates,
+        championWinrateInfluence: config.championWinrateInfluence,
         riskLevel: config.riskLevel,
         minGames: config.minGames,
         matchupRoleWeights: config.matchupRoleWeights,

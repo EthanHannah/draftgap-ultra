@@ -240,7 +240,7 @@ export const TotalChampionContributionTable: Component<Props> = (_props) => {
             },
             get columnVisibility() {
                 return {
-                    base: !config.ignoreChampionWinrates,
+                    base: config.championWinrateInfluence > 0,
                 };
             },
         },

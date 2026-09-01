@@ -13,7 +13,7 @@ type FavouritePick = `${string}:${Role}`;
 
 const DEFAULT_CONFIG: DraftGapConfig = {
     // DRAFT CONFIG
-    ignoreChampionWinrates: false,
+    championWinrateInfluence: 100,
     riskLevel: "medium",
     minGames: 1000,
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
@@ -39,13 +39,18 @@ const FAVOURITE_PICKS_KEY = "draftgap-favourite-picks";
 const CONFIG_KEY = "draftgap-config";
 
 function createConfig() {
-    const partialInitialConfig = JSON.parse(
+    const storedConfig = JSON.parse(
         localStorage.getItem(CONFIG_KEY) || "{}",
-    );
+    ) as Partial<DraftGapConfig> & { ignoreChampionWinrates?: boolean };
+    const { ignoreChampionWinrates, ...partialInitialConfig } = storedConfig;
+    const championWinrateInfluence =
+        partialInitialConfig.championWinrateInfluence ??
+        (ignoreChampionWinrates ? 0 : 100);
 
     const [config, setConfig] = createStore<DraftGapConfig>({
         ...DEFAULT_CONFIG,
         ...partialInitialConfig,
+        championWinrateInfluence,
     });
     createEffect(() => {
         localStorage.setItem(CONFIG_KEY, JSON.stringify(config));

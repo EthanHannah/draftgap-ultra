@@ -18,7 +18,7 @@ export type DraftResult = {
 };
 
 export interface AnalyzeDraftConfig {
-    ignoreChampionWinrates: boolean;
+    championWinrateInfluence: number;
     riskLevel: RiskLevel;
     minGames: number;
     matchupRoleWeights: RoleWeights;
@@ -42,12 +42,20 @@ export function analyzeDraft(
 ): DraftResult {
     const priorGames = priorGamesByRiskLevel[config.riskLevel];
 
-    const allyChampionRating = !config.ignoreChampionWinrates
-        ? analyzeChampions(dataset, fullDataset, team, priorGames)
-        : { totalRating: 0, winrate: 0, championResults: [] };
-    const enemyChampionRating = !config.ignoreChampionWinrates
-        ? analyzeChampions(dataset, fullDataset, enemy, priorGames)
-        : { totalRating: 0, winrate: 0, championResults: [] };
+    const allyChampionRating = analyzeChampions(
+        dataset,
+        fullDataset,
+        team,
+        priorGames,
+        config.championWinrateInfluence,
+    );
+    const enemyChampionRating = analyzeChampions(
+        dataset,
+        fullDataset,
+        enemy,
+        priorGames,
+        config.championWinrateInfluence,
+    );
 
     const allyDuoRating = analyzeDuos(
         fullDataset,
@@ -107,9 +115,12 @@ export function analyzeChampions(
     synergyMatchupDataset: Dataset,
     team: Map<Role, string>,
     priorGames: number,
+    championWinrateInfluence = 100,
 ): AnalyzeChampionsResult {
     const championResults: AnalyzeChampionResult[] = [];
     let totalRating = 0;
+    const influence =
+        Math.min(100, Math.max(0, championWinrateInfluence)) / 100;
 
     for (const [role, championKey] of team) {
         const championResult = analyzeChampion(
@@ -120,8 +131,13 @@ export function analyzeChampions(
             priorGames,
         );
 
-        championResults.push(championResult);
-        totalRating += championResult.rating;
+        const weightedChampionResult = {
+            ...championResult,
+            rating: championResult.rating * influence,
+        };
+
+        championResults.push(weightedChampionResult);
+        totalRating += weightedChampionResult.rating;
     }
 
     return {

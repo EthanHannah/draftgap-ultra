@@ -104,7 +104,7 @@ export default function AnalysisView() {
                 </div>
             </div>
 
-            <Show when={!config.ignoreChampionWinrates}>
+            <Show when={config.championWinrateInfluence > 0}>
                 <div
                     class="flex-col flex sm:flex-row gap-4 mb-8"
                     id="champions-result"

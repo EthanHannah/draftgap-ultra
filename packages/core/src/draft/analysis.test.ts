@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeDuos, analyzeMatchups } from "./analysis";
+import { analyzeChampions, analyzeDuos, analyzeMatchups } from "./analysis";
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { ChampionData } from "../models/dataset/ChampionData";
 import { Dataset } from "../models/dataset/Dataset";
@@ -107,5 +107,25 @@ describe("role influence weights", () => {
         ).totalRating;
 
         expect(halfRating).toBeCloseTo(defaultRating * 0.5);
+    });
+});
+
+describe("champion winrate influence", () => {
+    test("scales individual champion ratings by the configured percentage", () => {
+        const dataset = createDataset();
+        dataset.championData.top.statsByRole[Role.Top].wins = 60;
+        const team = new Map([[Role.Top, "top"]]);
+
+        const fullRating = analyzeChampions(dataset, dataset, team, 0, 100);
+        const halfRating = analyzeChampions(dataset, dataset, team, 0, 50);
+        const zeroRating = analyzeChampions(dataset, dataset, team, 0, 0);
+
+        expect(halfRating.totalRating).toBeCloseTo(
+            fullRating.totalRating * 0.5,
+        );
+        expect(halfRating.championResults[0].rating).toBeCloseTo(
+            fullRating.championResults[0].rating * 0.5,
+        );
+        expect(zeroRating.totalRating).toBe(0);
     });
 });

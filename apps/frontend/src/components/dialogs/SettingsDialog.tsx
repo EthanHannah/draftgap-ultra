@@ -92,20 +92,29 @@ export default function SettingsDialog() {
             </DialogHeader>
             <div>
                 <h3 class="text-3xl uppercase">Draft</h3>
-                <div class="flex space-x-16 items-center justify-between mt-2">
-                    <span class="text-lg uppercase">
-                        Ignore individual champion winrates
+                <label class="mt-2 grid gap-1">
+                    <span class="flex items-center justify-between gap-4 text-lg uppercase">
+                        <span>Individual champion winrate influence</span>
+                        <span class="tabular-nums">
+                            {config.championWinrateInfluence}%
+                        </span>
                     </span>
-                    <Switch
-                        checked={config.ignoreChampionWinrates}
-                        onChange={() =>
+                    <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        class="w-full accent-secondary"
+                        value={config.championWinrateInfluence}
+                        aria-label="Individual champion winrate influence"
+                        onInput={(event) =>
                             setConfig({
-                                ignoreChampionWinrates:
-                                    !config.ignoreChampionWinrates,
+                                championWinrateInfluence:
+                                    event.currentTarget.valueAsNumber,
                             })
                         }
                     />
-                </div>
+                </label>
                 <div class="flex items-center mt-1 mb-1 gap-1">
                     <span class="text-lg uppercase block">Risk level</span>
                     <Dialog>
@@ -129,9 +138,7 @@ export default function SettingsDialog() {
                     }
                 />
                 <fieldset class="mt-5">
-                    <legend class="text-lg uppercase">
-                        Role influence
-                    </legend>
+                    <legend class="text-lg uppercase">Role influence</legend>
                     <p class="text-sm opacity-60">
                         Adjust how strongly each role's matchups and duos affect
                         results. 100% is the default; interactions use the

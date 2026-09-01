@@ -13,7 +13,7 @@ type DraftTablePlacement =
 
 export type DraftGapConfig = {
     // DRAFT ANALYSIS
-    ignoreChampionWinrates: boolean;
+    championWinrateInfluence: number;
     riskLevel: RiskLevel;
     minGames: number;
     matchupRoleWeights: RoleWeights;
