@@ -24,8 +24,7 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     showFavouritesAtTop: false,
     banPlacement: "bottom",
     unownedPlacement: "bottom",
-    synergyBlindabilityWeight: 100,
-    matchupBlindabilityWeight: 100,
+    blindabilityWeight: 100,
     showAdvancedWinrates: false,
     language: "en_US",
 
@@ -43,16 +42,38 @@ const CONFIG_KEY = "draftgap-config";
 function createConfig() {
     const storedConfig = JSON.parse(
         localStorage.getItem(CONFIG_KEY) || "{}",
-    ) as Partial<DraftGapConfig> & { ignoreChampionWinrates?: boolean };
-    const { ignoreChampionWinrates, ...partialInitialConfig } = storedConfig;
+    ) as Partial<DraftGapConfig> & {
+        ignoreChampionWinrates?: boolean;
+        synergyBlindabilityWeight?: number;
+        matchupBlindabilityWeight?: number;
+    };
+    const {
+        ignoreChampionWinrates,
+        synergyBlindabilityWeight,
+        matchupBlindabilityWeight,
+        ...partialInitialConfig
+    } = storedConfig;
     const championWinrateInfluence =
         partialInitialConfig.championWinrateInfluence ??
         (ignoreChampionWinrates ? 0 : 100);
+    const legacyBlindabilityWeights = [
+        synergyBlindabilityWeight,
+        matchupBlindabilityWeight,
+    ].filter((weight): weight is number => weight !== undefined);
+    const blindabilityWeight =
+        partialInitialConfig.blindabilityWeight ??
+        (legacyBlindabilityWeights.length > 0
+            ? legacyBlindabilityWeights.reduce(
+                  (total, weight) => total + weight,
+                  0,
+              ) / legacyBlindabilityWeights.length
+            : DEFAULT_CONFIG.blindabilityWeight);
 
     const [config, setConfig] = createStore<DraftGapConfig>({
         ...DEFAULT_CONFIG,
         ...partialInitialConfig,
         championWinrateInfluence,
+        blindabilityWeight,
     });
     createEffect(() => {
         localStorage.setItem(CONFIG_KEY, JSON.stringify(config));

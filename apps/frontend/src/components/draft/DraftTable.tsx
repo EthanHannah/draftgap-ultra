@@ -371,10 +371,16 @@ export default function DraftTable() {
                       ),
                   },
                   {
-                      header: "Blindability",
+                      id: "blindability",
+                      header: () => (
+                          <span title="Fit with likely teammates and exposure to likely counters, weighted by pick rate">
+                              Blindability
+                          </span>
+                      ),
                       accessorFn: (suggestion) =>
-                          suggestion.blindabilityResult.adjustedWinrate -
-                          suggestion.draftResult.winrate,
+                          ratingToWinrate(
+                              suggestion.blindabilityResult.rating,
+                          ) - 0.5,
                       cell: (info) => (
                           <div class="flex justify-end">
                               <WinrateDeltaText

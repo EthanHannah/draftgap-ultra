@@ -76,8 +76,7 @@ export function createDraftAnalysisContext() {
     });
     const suggestionConfig = () => ({
         ...draftAnalysisConfig(),
-        synergyBlindabilityWeight: config.synergyBlindabilityWeight,
-        matchupBlindabilityWeight: config.matchupBlindabilityWeight,
+        blindabilityWeight: config.blindabilityWeight,
     });
 
     const allyDraftAnalysis = createMemo(() => {

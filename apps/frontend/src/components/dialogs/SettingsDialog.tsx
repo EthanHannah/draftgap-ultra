@@ -34,8 +34,7 @@ export default function SettingsDialog() {
         championWinrateInfluence: config.championWinrateInfluence,
         matchupRoleWeights: { ...config.matchupRoleWeights },
         duoRoleWeights: { ...config.duoRoleWeights },
-        synergyBlindabilityWeight: config.synergyBlindabilityWeight,
-        matchupBlindabilityWeight: config.matchupBlindabilityWeight,
+        blindabilityWeight: config.blindabilityWeight,
     });
 
     function updateRoleWeight(type: RoleWeightType, role: Role, value: number) {
@@ -251,18 +250,22 @@ export default function SettingsDialog() {
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">Blindability</legend>
                     <p class="text-sm opacity-60">
-                        Account for expected results with unknown teammates and
-                        opponents, weighted by how often each champion is played
-                        in that role. Sparse interactions are already pulled
-                        toward neutral by the selected risk level. Set a weight
-                        to 0% to ignore that kind of unknown interaction.
+                        Blindability combines compatibility with likely unknown
+                        teammates and exposure to likely enemy counters. Champion
+                        pick rates weight every unknown pick, so uncommon counters
+                        matter less. Hard counters—matchups at least 2 percentage
+                        points worse than expected—count extra. The direct-role
+                        opponent is primary; all four non-lane roles together
+                        receive half as much weight. Results are compared with
+                        viable choices in the same role, and sparse interactions
+                        are pulled toward neutral by the selected risk level.
                     </p>
-                    <div class="mt-3 grid grid-cols-2 gap-4">
+                    <div class="mt-3">
                         <label class="grid gap-1">
                             <span class="flex justify-between gap-2 text-sm uppercase">
-                                <span>Synergy</span>
+                                <span>Blindability influence</span>
                                 <span class="tabular-nums opacity-70">
-                                    {draftWeights.synergyBlindabilityWeight}%
+                                    {draftWeights.blindabilityWeight}%
                                 </span>
                             </span>
                             <input
@@ -271,46 +274,17 @@ export default function SettingsDialog() {
                                 max="100"
                                 step="5"
                                 class="w-full accent-secondary"
-                                value={draftWeights.synergyBlindabilityWeight}
-                                aria-label="Synergy blindability weight"
+                                value={draftWeights.blindabilityWeight}
+                                aria-label="Blindability influence"
                                 onInput={(event) =>
                                     setDraftWeights(
-                                        "synergyBlindabilityWeight",
+                                        "blindabilityWeight",
                                         event.currentTarget.valueAsNumber,
                                     )
                                 }
                                 onChange={(event) =>
                                     setConfig({
-                                        synergyBlindabilityWeight:
-                                            event.currentTarget.valueAsNumber,
-                                    })
-                                }
-                            />
-                        </label>
-                        <label class="grid gap-1">
-                            <span class="flex justify-between gap-2 text-sm uppercase">
-                                <span>Matchup</span>
-                                <span class="tabular-nums opacity-70">
-                                    {draftWeights.matchupBlindabilityWeight}%
-                                </span>
-                            </span>
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="5"
-                                class="w-full accent-secondary"
-                                value={draftWeights.matchupBlindabilityWeight}
-                                aria-label="Matchup blindability weight"
-                                onInput={(event) =>
-                                    setDraftWeights(
-                                        "matchupBlindabilityWeight",
-                                        event.currentTarget.valueAsNumber,
-                                    )
-                                }
-                                onChange={(event) =>
-                                    setConfig({
-                                        matchupBlindabilityWeight:
+                                        blindabilityWeight:
                                             event.currentTarget.valueAsNumber,
                                     })
                                 }

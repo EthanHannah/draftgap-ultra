@@ -134,8 +134,7 @@ const defaultConfig: SuggestionConfig = {
     minGames: 1,
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
-    synergyBlindabilityWeight: 100,
-    matchupBlindabilityWeight: 100,
+    blindabilityWeight: 100,
 };
 
 function findTopSuggestion(
@@ -150,7 +149,7 @@ function findTopSuggestion(
 }
 
 describe("suggestion blindability", () => {
-    test("uses expected interactions without charging an additional downside penalty", () => {
+    test("modestly penalizes worse ally-fit downside when expected synergy is equal", () => {
         const dataset = createBlindabilityDataset();
         const suggestions = getSuggestions(
             dataset,
@@ -165,17 +164,20 @@ describe("suggestion blindability", () => {
         expect(stable.blindabilityResult.synergyGap).toBeLessThan(
             volatile.blindabilityResult.synergyGap,
         );
-        expect(stable.blindabilityResult.matchupGap).toBeLessThan(
-            volatile.blindabilityResult.matchupGap,
-        );
-        expect(stable.blindabilityResult.synergyScore).toBeCloseTo(
+        expect(stable.blindabilityResult.synergyScore).toBeGreaterThan(
             volatile.blindabilityResult.synergyScore,
         );
-        expect(stable.blindabilityResult.matchupScore).toBeCloseTo(
-            volatile.blindabilityResult.matchupScore,
+        expect(stable.blindabilityResult.rating).toBeGreaterThan(0);
+        expect(volatile.blindabilityResult.rating).toBeLessThan(0);
+        expect(
+            suggestions.findIndex(
+                (suggestion) => suggestion.championKey === "stable",
+            ),
+        ).toBeLessThan(
+            suggestions.findIndex(
+                (suggestion) => suggestion.championKey === "volatile",
+            ),
         );
-        expect(stable.blindabilityResult.totalRating).toBeCloseTo(0);
-        expect(volatile.blindabilityResult.totalRating).toBeCloseTo(0);
     });
 
     test("rewards consistently strong interactions over consistently weak ones", () => {
@@ -191,17 +193,17 @@ describe("suggestion blindability", () => {
         makeViable(dataset, "weak", Role.Top);
         makeViable(dataset, "allyA", Role.Jungle);
         makeViable(dataset, "allyB", Role.Jungle);
-        makeViable(dataset, "enemyA", Role.Middle);
-        makeViable(dataset, "enemyB", Role.Middle);
+        makeViable(dataset, "enemyA", Role.Top);
+        makeViable(dataset, "enemyB", Role.Top);
 
         setDuo(dataset, "strong", Role.Top, "allyA", Role.Jungle, 60);
         setDuo(dataset, "strong", Role.Top, "allyB", Role.Jungle, 60);
         setDuo(dataset, "weak", Role.Top, "allyA", Role.Jungle, 40);
         setDuo(dataset, "weak", Role.Top, "allyB", Role.Jungle, 40);
-        setMatchup(dataset, "strong", Role.Top, "enemyA", Role.Middle, 60);
-        setMatchup(dataset, "strong", Role.Top, "enemyB", Role.Middle, 60);
-        setMatchup(dataset, "weak", Role.Top, "enemyA", Role.Middle, 40);
-        setMatchup(dataset, "weak", Role.Top, "enemyB", Role.Middle, 40);
+        setMatchup(dataset, "strong", Role.Top, "enemyA", Role.Top, 60);
+        setMatchup(dataset, "strong", Role.Top, "enemyB", Role.Top, 60);
+        setMatchup(dataset, "weak", Role.Top, "enemyA", Role.Top, 40);
+        setMatchup(dataset, "weak", Role.Top, "enemyB", Role.Top, 40);
 
         const suggestions = getSuggestions(
             dataset,
@@ -216,26 +218,17 @@ describe("suggestion blindability", () => {
         expect(strong.blindabilityResult.synergyGap).toBeCloseTo(
             weak.blindabilityResult.synergyGap,
         );
-        expect(strong.blindabilityResult.matchupGap).toBeCloseTo(
-            weak.blindabilityResult.matchupGap,
-        );
         expect(strong.blindabilityResult.synergyScore).toBeGreaterThan(
             weak.blindabilityResult.synergyScore,
         );
         expect(strong.blindabilityResult.matchupScore).toBeGreaterThan(
             weak.blindabilityResult.matchupScore,
         );
-        expect(strong.blindabilityResult.totalRating).toBeGreaterThan(0);
-        expect(weak.blindabilityResult.totalRating).toBeLessThan(0);
-        expect(strong.blindabilityResult.synergyRating).toBeCloseTo(
-            strong.blindabilityResult.synergyScore,
-        );
-        expect(strong.blindabilityResult.matchupRating).toBeCloseTo(
-            strong.blindabilityResult.matchupScore,
-        );
+        expect(strong.blindabilityResult.rating).toBeGreaterThan(0);
+        expect(weak.blindabilityResult.rating).toBeLessThan(0);
     });
 
-    test("does not penalize a champion for gaining an unusually strong matchup", () => {
+    test("does not treat extra favorable matchups as additional blind safety", () => {
         const dataset = createDataset([
             "upside",
             "neutral",
@@ -245,16 +238,16 @@ describe("suggestion blindability", () => {
         ]);
         makeViable(dataset, "upside", Role.Top);
         makeViable(dataset, "neutral", Role.Top);
-        makeViable(dataset, "enemyA", Role.Middle);
-        makeViable(dataset, "enemyB", Role.Middle);
-        makeViable(dataset, "enemyC", Role.Middle);
+        makeViable(dataset, "enemyA", Role.Top);
+        makeViable(dataset, "enemyB", Role.Top);
+        makeViable(dataset, "enemyC", Role.Top);
 
-        setMatchup(dataset, "upside", Role.Top, "enemyA", Role.Middle, 50);
-        setMatchup(dataset, "upside", Role.Top, "enemyB", Role.Middle, 50);
-        setMatchup(dataset, "upside", Role.Top, "enemyC", Role.Middle, 60);
-        setMatchup(dataset, "neutral", Role.Top, "enemyA", Role.Middle, 50);
-        setMatchup(dataset, "neutral", Role.Top, "enemyB", Role.Middle, 50);
-        setMatchup(dataset, "neutral", Role.Top, "enemyC", Role.Middle, 50);
+        setMatchup(dataset, "upside", Role.Top, "enemyA", Role.Top, 50);
+        setMatchup(dataset, "upside", Role.Top, "enemyB", Role.Top, 50);
+        setMatchup(dataset, "upside", Role.Top, "enemyC", Role.Top, 60);
+        setMatchup(dataset, "neutral", Role.Top, "enemyA", Role.Top, 50);
+        setMatchup(dataset, "neutral", Role.Top, "enemyB", Role.Top, 50);
+        setMatchup(dataset, "neutral", Role.Top, "enemyC", Role.Top, 50);
 
         const suggestions = getSuggestions(
             dataset,
@@ -266,15 +259,52 @@ describe("suggestion blindability", () => {
         const upside = findTopSuggestion(suggestions, "upside");
         const neutral = findTopSuggestion(suggestions, "neutral");
 
-        expect(upside.blindabilityResult.matchupScore).toBeGreaterThan(
+        expect(upside.blindabilityResult.matchupScore).toBeCloseTo(
             neutral.blindabilityResult.matchupScore,
         );
-        expect(upside.blindabilityResult.matchupRating).toBeGreaterThan(
-            neutral.blindabilityResult.matchupRating,
+        expect(upside.blindabilityResult.rating).toBeCloseTo(
+            neutral.blindabilityResult.rating,
         );
     });
 
-    test("weights unknown teammates and opponents by role pick frequency", () => {
+    test("counts a hard counter more heavily than several ordinary counters", () => {
+        const dataset = createDataset([
+            "hardExposed",
+            "softExposed",
+            "enemyA",
+            "enemyB",
+        ]);
+        for (const championKey of Object.keys(dataset.championData)) {
+            makeViable(dataset, championKey, Role.Top);
+        }
+
+        setMatchup(dataset, "hardExposed", Role.Top, "enemyA", Role.Top, 0);
+        setMatchup(dataset, "hardExposed", Role.Top, "enemyB", Role.Top, 60);
+        setMatchup(dataset, "softExposed", Role.Top, "enemyA", Role.Top, 40);
+        setMatchup(dataset, "softExposed", Role.Top, "enemyB", Role.Top, 40);
+
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            defaultConfig,
+        );
+        const hardExposed = findTopSuggestion(suggestions, "hardExposed");
+        const softExposed = findTopSuggestion(suggestions, "softExposed");
+
+        expect(hardExposed.blindabilityResult.counterRate).toBeLessThan(
+            softExposed.blindabilityResult.counterRate,
+        );
+        expect(hardExposed.blindabilityResult.hardCounterRate).toBeGreaterThan(
+            softExposed.blindabilityResult.hardCounterRate,
+        );
+        expect(hardExposed.blindabilityResult.matchupScore).toBeLessThan(
+            softExposed.blindabilityResult.matchupScore,
+        );
+    });
+
+    test("makes uncommon teammates and counters contribute less", () => {
         const dataset = createDataset([
             "commonFavored",
             "rareFavored",
@@ -287,10 +317,10 @@ describe("suggestion blindability", () => {
         makeViable(dataset, "neutral", Role.Top);
         makeViable(dataset, "common", Role.Jungle, 9000);
         makeViable(dataset, "rare", Role.Jungle, 1000);
-        makeViable(dataset, "common", Role.Middle, 9000);
-        makeViable(dataset, "rare", Role.Middle, 1000);
+        makeViable(dataset, "common", Role.Top, 9000);
+        makeViable(dataset, "rare", Role.Top, 1000);
 
-        for (const role of [Role.Jungle, Role.Middle]) {
+        for (const role of [Role.Jungle, Role.Top]) {
             const setInteraction = role === Role.Jungle ? setDuo : setMatchup;
 
             setInteraction(
@@ -336,8 +366,14 @@ describe("suggestion blindability", () => {
         expect(commonFavored.blindabilityResult.synergyScore).toBeGreaterThan(
             neutral.blindabilityResult.synergyScore,
         );
-        expect(commonFavored.blindabilityResult.matchupScore).toBeGreaterThan(
+        expect(commonFavored.blindabilityResult.matchupScore).toBeLessThan(
             neutral.blindabilityResult.matchupScore,
+        );
+        expect(commonFavored.blindabilityResult.matchupScore).toBeGreaterThan(
+            rareFavored.blindabilityResult.matchupScore,
+        );
+        expect(rareFavored.blindabilityResult.counterRate).toBeGreaterThan(
+            commonFavored.blindabilityResult.counterRate * 8,
         );
         expect(rareFavored.blindabilityResult.synergyScore).toBeLessThan(
             neutral.blindabilityResult.synergyScore,
@@ -347,7 +383,7 @@ describe("suggestion blindability", () => {
         );
     });
 
-    test("scales synergy and matchup components independently", () => {
+    test("scales ally fit and counter exposure as one blindability value", () => {
         const dataset = createBlindabilityDataset();
         const full = findTopSuggestion(
             getSuggestions(
@@ -359,28 +395,25 @@ describe("suggestion blindability", () => {
             ),
             "stable",
         );
-        const halfSynergy = findTopSuggestion(
+        const halfBlindability = findTopSuggestion(
             getSuggestions(dataset, dataset, new Map(), new Map(), {
                 ...defaultConfig,
-                synergyBlindabilityWeight: 50,
-                matchupBlindabilityWeight: 0,
+                blindabilityWeight: 50,
             }),
             "stable",
         );
         const disabled = findTopSuggestion(
             getSuggestions(dataset, dataset, new Map(), new Map(), {
                 ...defaultConfig,
-                synergyBlindabilityWeight: 0,
-                matchupBlindabilityWeight: 0,
+                blindabilityWeight: 0,
             }),
             "stable",
         );
 
-        expect(halfSynergy.blindabilityResult.synergyRating).toBeCloseTo(
-            full.blindabilityResult.synergyRating * 0.5,
+        expect(halfBlindability.blindabilityResult.rating).toBeCloseTo(
+            full.blindabilityResult.rating * 0.5,
         );
-        expect(halfSynergy.blindabilityResult.matchupRating).toBe(0);
-        expect(disabled.blindabilityResult.totalRating).toBe(0);
+        expect(disabled.blindabilityResult.rating).toBe(0);
         expect(disabled.blindabilityResult.adjustedWinrate).toBeCloseTo(
             disabled.draftResult.winrate,
         );
@@ -406,7 +439,7 @@ describe("suggestion blindability", () => {
         expect(unsupported.blindabilityResult.matchupGap).toBe(0);
         expect(unsupported.blindabilityResult.synergyConfidence).toBe(0);
         expect(unsupported.blindabilityResult.matchupConfidence).toBe(0);
-        expect(unsupported.blindabilityResult.totalRating).toBe(0);
+        expect(unsupported.blindabilityResult.rating).toBe(0);
     });
 
     test("removes gap contributions as ally and enemy roles become known", () => {
@@ -484,7 +517,7 @@ describe("suggestion blindability", () => {
             minGames: 1000,
         });
 
-        expect(single.blindabilityResult.totalRating).toBe(0);
+        expect(single.blindabilityResult.rating).toBe(0);
         expect(Number.isFinite(single.blindabilityResult.adjustedWinrate)).toBe(
             true,
         );
@@ -516,8 +549,7 @@ describe("flex-pick suggestion uncertainty", () => {
         );
         const config = {
             ...defaultConfig,
-            synergyBlindabilityWeight: 0,
-            matchupBlindabilityWeight: 0,
+            blindabilityWeight: 0,
         };
         const middle = findTopSuggestion(
             getSuggestions(
@@ -574,8 +606,7 @@ describe("flex-pick suggestion uncertainty", () => {
         setDuo(dataset, "candidate", Role.Top, "flexAlly", Role.Jungle, 60);
         const config = {
             ...defaultConfig,
-            synergyBlindabilityWeight: 0,
-            matchupBlindabilityWeight: 0,
+            blindabilityWeight: 0,
         };
         const jungle = findTopSuggestion(
             getSuggestions(
