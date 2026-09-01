@@ -1,6 +1,7 @@
 import { Icon } from "solid-heroicons";
 import { questionMarkCircle } from "solid-heroicons/solid-mini";
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
+import { createStore } from "solid-js/store";
 import { ButtonGroup, ButtonGroupOption } from "../common/ButtonGroup";
 import { Switch } from "../common/Switch";
 import {
@@ -21,10 +22,31 @@ import {
     DialogTrigger,
 } from "../common/Dialog";
 import { FAQDialog } from "./FAQDialog";
+import { displayNameByRole, Role, ROLES } from "@draftgap/core/src/models/Role";
+import { RoleIcon } from "../icons/roles/RoleIcon";
+
+type RoleWeightType = "matchupRoleWeights" | "duoRoleWeights";
 
 export default function SettingsDialog() {
     const { isDesktop } = useMedia();
     const { config, setConfig } = useUser();
+    const [roleWeights, setRoleWeights] = createStore({
+        matchupRoleWeights: { ...config.matchupRoleWeights },
+        duoRoleWeights: { ...config.duoRoleWeights },
+    });
+
+    function updateRoleWeight(type: RoleWeightType, role: Role, value: number) {
+        setRoleWeights(type, role, value);
+        saveRoleWeight(type, role, value);
+    }
+
+    function saveRoleWeight(type: RoleWeightType, role: Role, value: number) {
+        if (type === "matchupRoleWeights") {
+            setConfig("matchupRoleWeights", role, value);
+        } else {
+            setConfig("duoRoleWeights", role, value);
+        }
+    }
 
     const riskLevelOptions: ButtonGroupOption<RiskLevel>[] = RiskLevel.map(
         (level) => ({
@@ -106,6 +128,108 @@ export default function SettingsDialog() {
                         })
                     }
                 />
+                <fieldset class="mt-5">
+                    <legend class="text-lg uppercase">
+                        Role influence
+                    </legend>
+                    <p class="text-sm opacity-60">
+                        Adjust how strongly each role's matchups and duos affect
+                        results. 100% is the default; interactions use the
+                        average weight of both roles.
+                    </p>
+                    <div class="mt-3 grid grid-cols-[minmax(6.5rem,auto)_minmax(0,1fr)_minmax(0,1fr)] items-end gap-x-4 gap-y-3">
+                        <span class="text-sm uppercase opacity-60">Role</span>
+                        <span class="text-center text-sm uppercase opacity-60">
+                            Matchup
+                        </span>
+                        <span class="text-center text-sm uppercase opacity-60">
+                            Duo
+                        </span>
+                        <For each={ROLES}>
+                            {(role) => (
+                                <>
+                                    <div class="flex items-center gap-2">
+                                        <RoleIcon role={role} class="h-7 w-7" />
+                                        <span class="uppercase">
+                                            {displayNameByRole[role]}
+                                        </span>
+                                    </div>
+                                    <label class="grid gap-1">
+                                        <span class="text-center text-sm tabular-nums opacity-70">
+                                            {
+                                                roleWeights.matchupRoleWeights[
+                                                    role
+                                                ]
+                                            }
+                                            %
+                                        </span>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="200"
+                                            step="5"
+                                            class="w-full accent-secondary"
+                                            value={
+                                                roleWeights.matchupRoleWeights[
+                                                    role
+                                                ]
+                                            }
+                                            aria-label={`${displayNameByRole[role]} matchup influence`}
+                                            onInput={(event) =>
+                                                updateRoleWeight(
+                                                    "matchupRoleWeights",
+                                                    role,
+                                                    event.currentTarget
+                                                        .valueAsNumber,
+                                                )
+                                            }
+                                            onChange={(event) =>
+                                                saveRoleWeight(
+                                                    "matchupRoleWeights",
+                                                    role,
+                                                    event.currentTarget
+                                                        .valueAsNumber,
+                                                )
+                                            }
+                                        />
+                                    </label>
+                                    <label class="grid gap-1">
+                                        <span class="text-center text-sm tabular-nums opacity-70">
+                                            {roleWeights.duoRoleWeights[role]}%
+                                        </span>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="200"
+                                            step="5"
+                                            class="w-full accent-secondary"
+                                            value={
+                                                roleWeights.duoRoleWeights[role]
+                                            }
+                                            aria-label={`${displayNameByRole[role]} duo influence`}
+                                            onInput={(event) =>
+                                                updateRoleWeight(
+                                                    "duoRoleWeights",
+                                                    role,
+                                                    event.currentTarget
+                                                        .valueAsNumber,
+                                                )
+                                            }
+                                            onChange={(event) =>
+                                                saveRoleWeight(
+                                                    "duoRoleWeights",
+                                                    role,
+                                                    event.currentTarget
+                                                        .valueAsNumber,
+                                                )
+                                            }
+                                        />
+                                    </label>
+                                </>
+                            )}
+                        </For>
+                    </div>
+                </fieldset>
             </div>
             <div>
                 <h3 class="text-3xl uppercase">UI</h3>

@@ -1,4 +1,5 @@
 import { RiskLevel } from "../../risk/risk-level";
+import { RoleWeights } from "../Role";
 
 export type StatsSite = "op.gg" | "u.gg" | "lolalytics";
 
@@ -15,6 +16,8 @@ export type DraftGapConfig = {
     ignoreChampionWinrates: boolean;
     riskLevel: RiskLevel;
     minGames: number;
+    matchupRoleWeights: RoleWeights;
+    duoRoleWeights: RoleWeights;
 
     // DRAFT SUGGESTIONS
     showFavouritesAtTop: boolean;

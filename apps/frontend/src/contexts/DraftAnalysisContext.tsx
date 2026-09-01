@@ -63,6 +63,8 @@ export function createDraftAnalysisContext() {
         ignoreChampionWinrates: config.ignoreChampionWinrates,
         riskLevel: config.riskLevel,
         minGames: config.minGames,
+        matchupRoleWeights: config.matchupRoleWeights,
+        duoRoleWeights: config.duoRoleWeights,
     });
 
     const allyDraftAnalysis = createMemo(() => {

@@ -6,7 +6,7 @@ import {
     useContext,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { Role } from "@draftgap/core/src/models/Role";
+import { DEFAULT_ROLE_WEIGHTS, Role } from "@draftgap/core/src/models/Role";
 import { DraftGapConfig } from "@draftgap/core/src/models/user/Config";
 
 type FavouritePick = `${string}:${Role}`;
@@ -16,6 +16,8 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     ignoreChampionWinrates: false,
     riskLevel: "medium",
     minGames: 1000,
+    matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
+    duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
 
     // UI
     showFavouritesAtTop: false,

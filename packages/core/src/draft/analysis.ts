@@ -1,6 +1,6 @@
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { Dataset } from "../models/dataset/Dataset";
-import { Role } from "../models/Role";
+import { DEFAULT_ROLE_WEIGHTS, Role, RoleWeights } from "../models/Role";
 import { winrateToRating, ratingToWinrate } from "../rating/ratings";
 import { RiskLevel, priorGamesByRiskLevel } from "../risk/risk-level";
 import { addStats, averageStats } from "../stats";
@@ -21,6 +21,16 @@ export interface AnalyzeDraftConfig {
     ignoreChampionWinrates: boolean;
     riskLevel: RiskLevel;
     minGames: number;
+    matchupRoleWeights: RoleWeights;
+    duoRoleWeights: RoleWeights;
+}
+
+export function getInteractionWeight(
+    roleWeights: RoleWeights,
+    roleA: Role,
+    roleB: Role,
+) {
+    return (roleWeights[roleA] + roleWeights[roleB]) / 200;
 }
 
 export function analyzeDraft(
@@ -39,9 +49,25 @@ export function analyzeDraft(
         ? analyzeChampions(dataset, fullDataset, enemy, priorGames)
         : { totalRating: 0, winrate: 0, championResults: [] };
 
-    const allyDuoRating = analyzeDuos(fullDataset, team, priorGames);
-    const enemyDuoRating = analyzeDuos(fullDataset, enemy, priorGames);
-    const matchupRating = analyzeMatchups(fullDataset, team, enemy, priorGames);
+    const allyDuoRating = analyzeDuos(
+        fullDataset,
+        team,
+        priorGames,
+        config.duoRoleWeights,
+    );
+    const enemyDuoRating = analyzeDuos(
+        fullDataset,
+        enemy,
+        priorGames,
+        config.duoRoleWeights,
+    );
+    const matchupRating = analyzeMatchups(
+        fullDataset,
+        team,
+        enemy,
+        priorGames,
+        config.matchupRoleWeights,
+    );
 
     const totalRating =
         allyChampionRating.totalRating +
@@ -176,6 +202,7 @@ export function analyzeDuos(
     dataset: Dataset,
     team: Map<Role, string>,
     priorGames: number,
+    roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS,
 ): AnalyzeDuosResult {
     const teamEntries = Array.from(team.entries()).sort((a, b) => a[0] - b[0]);
 
@@ -226,7 +253,9 @@ export function analyzeDuos(
             const winrate = adjustedStats.wins / adjustedStats.games;
 
             const actualRating = winrateToRating(winrate);
-            const rating = actualRating - expectedRating;
+            const rating =
+                (actualRating - expectedRating) *
+                getInteractionWeight(roleWeights, role, role2);
 
             duoResults.push({
                 roleA: role,
@@ -272,6 +301,7 @@ export function analyzeMatchups(
     team: Map<Role, string>,
     enemy: Map<Role, string>,
     priorGames: number,
+    roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS,
 ): AnalyzeMatchupsResult {
     const matchupResults: AnalyzeMatchupResult[] = [];
     let totalRating = 0;
@@ -333,7 +363,9 @@ export function analyzeMatchups(
             const winrate = adjustedStats.wins / adjustedStats.games;
 
             const actualRating = winrateToRating(winrate);
-            const rating = actualRating - expectedRating;
+            const rating =
+                (actualRating - expectedRating) *
+                getInteractionWeight(roleWeights, allyRole, enemyRole);
 
             matchupResults.push({
                 roleA: allyRole,
