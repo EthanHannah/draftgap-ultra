@@ -24,6 +24,8 @@ export type DraftGapConfig = {
     showFavouritesAtTop: boolean;
     banPlacement: DraftTablePlacement;
     unownedPlacement: DraftTablePlacement;
+    synergyBlindabilityWeight: number;
+    matchupBlindabilityWeight: number;
     showAdvancedWinrates: boolean;
     language: string;
 

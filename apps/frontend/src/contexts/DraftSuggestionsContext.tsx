@@ -2,11 +2,13 @@ import { JSXElement, createContext, createMemo, useContext } from "solid-js";
 import { getSuggestions } from "@draftgap/core/src/draft/suggestions";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
+import { useDraft } from "./DraftContext";
 
 export function createDraftSuggestionsContext() {
     const { isLoaded, dataset, dataset30Days } = useDataset();
-    const { draftAnalysisConfig, allyTeamComp, opponentTeamComp } =
+    const { suggestionConfig, allyTeamComp, opponentTeamComp } =
         useDraftAnalysis();
+    const { bans } = useDraft();
 
     const allySuggestions = createMemo(() => {
         if (!isLoaded()) return [];
@@ -16,7 +18,8 @@ export function createDraftSuggestionsContext() {
             dataset30Days()!,
             allyTeamComp(),
             opponentTeamComp(),
-            draftAnalysisConfig(),
+            suggestionConfig(),
+            bans,
         );
     });
 
@@ -28,7 +31,8 @@ export function createDraftSuggestionsContext() {
             dataset30Days()!,
             opponentTeamComp(),
             allyTeamComp(),
-            draftAnalysisConfig(),
+            suggestionConfig(),
+            bans,
         );
     });
 

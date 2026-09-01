@@ -20,13 +20,17 @@ function createChampion(key: string): ChampionData {
 function createDataset() {
     const top = createChampion("top");
     const jungle = createChampion("jungle");
+    const support = createChampion("support");
     const topStats = top.statsByRole[Role.Top];
     const jungleStats = jungle.statsByRole[Role.Jungle];
+    const supportStats = support.statsByRole[Role.Support];
 
     topStats.games = 100;
     topStats.wins = 50;
     jungleStats.games = 100;
     jungleStats.wins = 50;
+    supportStats.games = 100;
+    supportStats.wins = 50;
 
     topStats.synergy[Role.Jungle].jungle = {
         championKey: "jungle",
@@ -48,11 +52,21 @@ function createDataset() {
         games: 100,
         wins: 40,
     };
+    topStats.matchup[Role.Support].support = {
+        championKey: "support",
+        games: 100,
+        wins: 55,
+    };
+    supportStats.matchup[Role.Top].top = {
+        championKey: "top",
+        games: 100,
+        wins: 45,
+    };
 
     return {
         version: "test",
         date: "test",
-        championData: { top, jungle },
+        championData: { top, jungle, support },
         itemData: {},
         runeData: {},
         runePathData: {},
@@ -75,20 +89,21 @@ describe("role influence weights", () => {
         [Role.Jungle, "jungle"],
     ]);
 
-    test("scales duo ratings by the average weight of both roles", () => {
+    test("disables duo ratings when either role has zero influence", () => {
         const dataset = createDataset();
         const defaultRating = analyzeDuos(dataset, team, 0).totalRating;
-        const halfRating = analyzeDuos(
+        const zeroRating = analyzeDuos(
             dataset,
             team,
             0,
             weights(0, 100),
         ).totalRating;
 
-        expect(halfRating).toBeCloseTo(defaultRating * 0.5);
+        expect(defaultRating).not.toBe(0);
+        expect(zeroRating).toBe(0);
     });
 
-    test("scales matchup ratings by the average weight of both roles", () => {
+    test("applies matchup influence to the enemy role only", () => {
         const dataset = createDataset();
         const ally = new Map([[Role.Top, "top"]]);
         const enemy = new Map([[Role.Jungle, "jungle"]]);
@@ -98,15 +113,71 @@ describe("role influence weights", () => {
             enemy,
             0,
         ).totalRating;
-        const halfRating = analyzeMatchups(
+        const allyRoleDisabledRating = analyzeMatchups(
             dataset,
             ally,
             enemy,
             0,
             weights(0, 100),
         ).totalRating;
+        const enemyRoleDisabledRating = analyzeMatchups(
+            dataset,
+            ally,
+            enemy,
+            0,
+            weights(100, 0),
+        ).totalRating;
 
-        expect(halfRating).toBeCloseTo(defaultRating * 0.5);
+        expect(defaultRating).not.toBe(0);
+        expect(allyRoleDisabledRating).toBeCloseTo(defaultRating);
+        expect(enemyRoleDisabledRating).toBe(0);
+    });
+
+    test("only includes enabled enemy roles in matchup analysis", () => {
+        const dataset = createDataset();
+        const ally = new Map([[Role.Top, "top"]]);
+        const enemy = new Map([
+            [Role.Jungle, "jungle"],
+            [Role.Support, "support"],
+        ]);
+        const supportOnlyWeights = {
+            ...DEFAULT_ROLE_WEIGHTS,
+            [Role.Top]: 0,
+            [Role.Jungle]: 0,
+            [Role.Middle]: 0,
+            [Role.Bottom]: 0,
+        };
+        const result = analyzeMatchups(
+            dataset,
+            ally,
+            enemy,
+            0,
+            supportOnlyWeights,
+        );
+
+        expect(
+            result.matchupResults.find(
+                (matchup) => matchup.roleB === Role.Jungle,
+            )?.rating,
+        ).toBe(0);
+        expect(
+            result.matchupResults.find(
+                (matchup) => matchup.roleB === Role.Support,
+            )?.rating,
+        ).not.toBe(0);
+    });
+
+    test("averages non-zero duo role influence weights", () => {
+        const dataset = createDataset();
+        const defaultRating = analyzeDuos(dataset, team, 0).totalRating;
+        const threeQuarterRating = analyzeDuos(
+            dataset,
+            team,
+            0,
+            weights(50, 100),
+        ).totalRating;
+
+        expect(threeQuarterRating).toBeCloseTo(defaultRating * 0.75);
     });
 });
 

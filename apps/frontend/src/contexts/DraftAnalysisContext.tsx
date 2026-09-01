@@ -74,6 +74,11 @@ export function createDraftAnalysisContext() {
         matchupRoleWeights: config.matchupRoleWeights,
         duoRoleWeights: config.duoRoleWeights,
     });
+    const suggestionConfig = () => ({
+        ...draftAnalysisConfig(),
+        synergyBlindabilityWeight: config.synergyBlindabilityWeight,
+        matchupBlindabilityWeight: config.matchupBlindabilityWeight,
+    });
 
     const allyDraftAnalysis = createMemo(() => {
         if (!isLoaded()) return undefined;
@@ -196,6 +201,7 @@ export function createDraftAnalysisContext() {
         getLockedRoles,
         getFilledRoles,
         draftAnalysisConfig,
+        suggestionConfig,
         analysisPick,
         showAnalysisPick,
         setAnalysisPick,

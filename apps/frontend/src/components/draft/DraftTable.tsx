@@ -311,7 +311,7 @@ export default function DraftTable() {
             sortDescFirst: false,
         },
         {
-            header: "Champion",
+            header: "Champ",
             accessorFn: (suggestion) => suggestion.championKey,
             cell: (info) => (
                 <ChampionCell championKey={info.getValue<string>()} />
@@ -326,12 +326,11 @@ export default function DraftTable() {
         ...(config.showAdvancedWinrates
             ? ([
                   {
-                      header: "Champions Δ",
+                      header: "Champ Δ",
                       accessorFn: (suggestion) =>
                           componentWinrateDelta(
                               suggestion,
-                              (result) =>
-                                  result.allyChampionRating.totalRating,
+                              (result) => result.allyChampionRating.totalRating,
                           ),
                       cell: (info) => (
                           <div class="flex justify-end">
@@ -342,7 +341,7 @@ export default function DraftTable() {
                       ),
                   },
                   {
-                      header: "Matchups Δ",
+                      header: "Matchup Δ",
                       accessorFn: (suggestion) =>
                           componentWinrateDelta(
                               suggestion,
@@ -357,7 +356,7 @@ export default function DraftTable() {
                       ),
                   },
                   {
-                      header: "Duos Δ",
+                      header: "Duo Δ",
                       accessorFn: (suggestion) =>
                           componentWinrateDelta(
                               suggestion,
@@ -371,12 +370,25 @@ export default function DraftTable() {
                           </div>
                       ),
                   },
+                  {
+                      header: "Blindability",
+                      accessorFn: (suggestion) =>
+                          suggestion.blindabilityResult.adjustedWinrate -
+                          suggestion.draftResult.winrate,
+                      cell: (info) => (
+                          <div class="flex justify-end">
+                              <WinrateDeltaText
+                                  delta={info.getValue<number>()}
+                              />
+                          </div>
+                      ),
+                  },
               ] as ColumnDef<Suggestion>[])
             : []),
         {
             header: "Winrate Δ",
             accessorFn: (suggestion) =>
-                suggestion.draftResult.winrate -
+                suggestion.blindabilityResult.adjustedWinrate -
                 (draftAnalysisBeforePick()?.winrate ?? 0.5),
             cell: (info) => (
                 <div class="flex justify-end">

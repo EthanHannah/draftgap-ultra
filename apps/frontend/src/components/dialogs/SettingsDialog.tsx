@@ -140,9 +140,10 @@ export default function SettingsDialog() {
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">Role influence</legend>
                     <p class="text-sm opacity-60">
-                        Adjust how strongly each role's matchups and duos affect
-                        results. 100% is the default; interactions use the
-                        average weight of both roles.
+                        Matchup weights apply to the opponent's role, so 0%
+                        ignores that enemy role. Duo interactions use the
+                        average of both ally role weights; a 0% role disables
+                        duos involving it.
                     </p>
                     <div class="mt-3 grid grid-cols-[minmax(6.5rem,auto)_minmax(0,1fr)_minmax(0,1fr)] items-end gap-x-4 gap-y-3">
                         <span class="text-sm uppercase opacity-60">Role</span>
@@ -235,6 +236,65 @@ export default function SettingsDialog() {
                                 </>
                             )}
                         </For>
+                    </div>
+                </fieldset>
+                <fieldset class="mt-5">
+                    <legend class="text-lg uppercase">Blindability</legend>
+                    <p class="text-sm opacity-60">
+                        Reward champions whose results vary less across unknown
+                        teammates and opponents. At 100%, blindability is a
+                        secondary adjustment calibrated to about one champion
+                        interaction, and champions with sparse interaction data
+                        stay close to neutral. Set a weight to 0% to ignore that
+                        kind of blindability.
+                    </p>
+                    <div class="mt-3 grid grid-cols-2 gap-4">
+                        <label class="grid gap-1">
+                            <span class="flex justify-between gap-2 text-sm uppercase">
+                                <span>Synergy</span>
+                                <span class="tabular-nums opacity-70">
+                                    {config.synergyBlindabilityWeight}%
+                                </span>
+                            </span>
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="5"
+                                class="w-full accent-secondary"
+                                value={config.synergyBlindabilityWeight}
+                                aria-label="Synergy blindability weight"
+                                onInput={(event) =>
+                                    setConfig({
+                                        synergyBlindabilityWeight:
+                                            event.currentTarget.valueAsNumber,
+                                    })
+                                }
+                            />
+                        </label>
+                        <label class="grid gap-1">
+                            <span class="flex justify-between gap-2 text-sm uppercase">
+                                <span>Matchup</span>
+                                <span class="tabular-nums opacity-70">
+                                    {config.matchupBlindabilityWeight}%
+                                </span>
+                            </span>
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="5"
+                                class="w-full accent-secondary"
+                                value={config.matchupBlindabilityWeight}
+                                aria-label="Matchup blindability weight"
+                                onInput={(event) =>
+                                    setConfig({
+                                        matchupBlindabilityWeight:
+                                            event.currentTarget.valueAsNumber,
+                                    })
+                                }
+                            />
+                        </label>
                     </div>
                 </fieldset>
             </div>
