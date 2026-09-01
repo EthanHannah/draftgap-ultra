@@ -30,14 +30,16 @@ type RoleWeightType = "matchupRoleWeights" | "duoRoleWeights";
 export default function SettingsDialog() {
     const { isDesktop } = useMedia();
     const { config, setConfig } = useUser();
-    const [roleWeights, setRoleWeights] = createStore({
+    const [draftWeights, setDraftWeights] = createStore({
+        championWinrateInfluence: config.championWinrateInfluence,
         matchupRoleWeights: { ...config.matchupRoleWeights },
         duoRoleWeights: { ...config.duoRoleWeights },
+        synergyBlindabilityWeight: config.synergyBlindabilityWeight,
+        matchupBlindabilityWeight: config.matchupBlindabilityWeight,
     });
 
     function updateRoleWeight(type: RoleWeightType, role: Role, value: number) {
-        setRoleWeights(type, role, value);
-        saveRoleWeight(type, role, value);
+        setDraftWeights(type, role, value);
     }
 
     function saveRoleWeight(type: RoleWeightType, role: Role, value: number) {
@@ -96,7 +98,7 @@ export default function SettingsDialog() {
                     <span class="flex items-center justify-between gap-4 text-lg uppercase">
                         <span>Individual champion winrate influence</span>
                         <span class="tabular-nums">
-                            {config.championWinrateInfluence}%
+                            {draftWeights.championWinrateInfluence}%
                         </span>
                     </span>
                     <input
@@ -105,9 +107,15 @@ export default function SettingsDialog() {
                         max="100"
                         step="5"
                         class="w-full accent-secondary"
-                        value={config.championWinrateInfluence}
+                        value={draftWeights.championWinrateInfluence}
                         aria-label="Individual champion winrate influence"
                         onInput={(event) =>
+                            setDraftWeights(
+                                "championWinrateInfluence",
+                                event.currentTarget.valueAsNumber,
+                            )
+                        }
+                        onChange={(event) =>
                             setConfig({
                                 championWinrateInfluence:
                                     event.currentTarget.valueAsNumber,
@@ -165,7 +173,7 @@ export default function SettingsDialog() {
                                     <label class="grid gap-1">
                                         <span class="text-center text-sm tabular-nums opacity-70">
                                             {
-                                                roleWeights.matchupRoleWeights[
+                                                draftWeights.matchupRoleWeights[
                                                     role
                                                 ]
                                             }
@@ -178,7 +186,7 @@ export default function SettingsDialog() {
                                             step="5"
                                             class="w-full accent-secondary"
                                             value={
-                                                roleWeights.matchupRoleWeights[
+                                                draftWeights.matchupRoleWeights[
                                                     role
                                                 ]
                                             }
@@ -203,7 +211,7 @@ export default function SettingsDialog() {
                                     </label>
                                     <label class="grid gap-1">
                                         <span class="text-center text-sm tabular-nums opacity-70">
-                                            {roleWeights.duoRoleWeights[role]}%
+                                            {draftWeights.duoRoleWeights[role]}%
                                         </span>
                                         <input
                                             type="range"
@@ -212,7 +220,9 @@ export default function SettingsDialog() {
                                             step="5"
                                             class="w-full accent-secondary"
                                             value={
-                                                roleWeights.duoRoleWeights[role]
+                                                draftWeights.duoRoleWeights[
+                                                    role
+                                                ]
                                             }
                                             aria-label={`${displayNameByRole[role]} duo influence`}
                                             onInput={(event) =>
@@ -241,19 +251,19 @@ export default function SettingsDialog() {
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">Blindability</legend>
                     <p class="text-sm opacity-60">
-                        Reward champions whose results vary less across unknown
-                        teammates and opponents. At 100%, blindability is a
-                        secondary adjustment calibrated to about one champion
-                        interaction, and champions with sparse interaction data
-                        stay close to neutral. Set a weight to 0% to ignore that
-                        kind of blindability.
+                        Reward champions with strong, consistent results across
+                        unknown teammates and opponents. The score balances the
+                        average result against the risk of an unfavorable pick.
+                        At 100%, it is calibrated to about one champion
+                        interaction, and sparse data stays close to neutral. Set
+                        a weight to 0% to ignore that kind of blindability.
                     </p>
                     <div class="mt-3 grid grid-cols-2 gap-4">
                         <label class="grid gap-1">
                             <span class="flex justify-between gap-2 text-sm uppercase">
                                 <span>Synergy</span>
                                 <span class="tabular-nums opacity-70">
-                                    {config.synergyBlindabilityWeight}%
+                                    {draftWeights.synergyBlindabilityWeight}%
                                 </span>
                             </span>
                             <input
@@ -262,9 +272,15 @@ export default function SettingsDialog() {
                                 max="100"
                                 step="5"
                                 class="w-full accent-secondary"
-                                value={config.synergyBlindabilityWeight}
+                                value={draftWeights.synergyBlindabilityWeight}
                                 aria-label="Synergy blindability weight"
                                 onInput={(event) =>
+                                    setDraftWeights(
+                                        "synergyBlindabilityWeight",
+                                        event.currentTarget.valueAsNumber,
+                                    )
+                                }
+                                onChange={(event) =>
                                     setConfig({
                                         synergyBlindabilityWeight:
                                             event.currentTarget.valueAsNumber,
@@ -276,7 +292,7 @@ export default function SettingsDialog() {
                             <span class="flex justify-between gap-2 text-sm uppercase">
                                 <span>Matchup</span>
                                 <span class="tabular-nums opacity-70">
-                                    {config.matchupBlindabilityWeight}%
+                                    {draftWeights.matchupBlindabilityWeight}%
                                 </span>
                             </span>
                             <input
@@ -285,9 +301,15 @@ export default function SettingsDialog() {
                                 max="100"
                                 step="5"
                                 class="w-full accent-secondary"
-                                value={config.matchupBlindabilityWeight}
+                                value={draftWeights.matchupBlindabilityWeight}
                                 aria-label="Matchup blindability weight"
                                 onInput={(event) =>
+                                    setDraftWeights(
+                                        "matchupBlindabilityWeight",
+                                        event.currentTarget.valueAsNumber,
+                                    )
+                                }
+                                onChange={(event) =>
                                     setConfig({
                                         matchupBlindabilityWeight:
                                             event.currentTarget.valueAsNumber,

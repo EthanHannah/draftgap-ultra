@@ -165,11 +165,11 @@ describe("suggestion blindability", () => {
             volatile.blindabilityResult.matchupGap,
         );
         expect(stable.blindabilityResult.synergyRating).toBeCloseTo(
-            (volatile.blindabilityResult.synergyGap / 2 / 9) *
+            (volatile.blindabilityResult.synergyGap / 4 / 9) *
                 stable.blindabilityResult.synergyConfidence,
         );
         expect(stable.blindabilityResult.matchupRating).toBeCloseTo(
-            (volatile.blindabilityResult.matchupGap / 2 / 9) *
+            (volatile.blindabilityResult.matchupGap / 4 / 9) *
                 stable.blindabilityResult.matchupConfidence,
         );
         expect(stable.blindabilityResult.totalRating).toBeGreaterThan(0);
@@ -183,6 +183,57 @@ describe("suggestion blindability", () => {
                 (suggestion) => suggestion.championKey === "volatile",
             ),
         );
+    });
+
+    test("rewards consistently strong interactions over consistently weak ones", () => {
+        const dataset = createDataset([
+            "strong",
+            "weak",
+            "allyA",
+            "allyB",
+            "enemyA",
+            "enemyB",
+        ]);
+        makeViable(dataset, "strong", Role.Top);
+        makeViable(dataset, "weak", Role.Top);
+        makeViable(dataset, "allyA", Role.Jungle);
+        makeViable(dataset, "allyB", Role.Jungle);
+        makeViable(dataset, "enemyA", Role.Middle);
+        makeViable(dataset, "enemyB", Role.Middle);
+
+        setDuo(dataset, "strong", Role.Top, "allyA", Role.Jungle, 60);
+        setDuo(dataset, "strong", Role.Top, "allyB", Role.Jungle, 60);
+        setDuo(dataset, "weak", Role.Top, "allyA", Role.Jungle, 40);
+        setDuo(dataset, "weak", Role.Top, "allyB", Role.Jungle, 40);
+        setMatchup(dataset, "strong", Role.Top, "enemyA", Role.Middle, 60);
+        setMatchup(dataset, "strong", Role.Top, "enemyB", Role.Middle, 60);
+        setMatchup(dataset, "weak", Role.Top, "enemyA", Role.Middle, 40);
+        setMatchup(dataset, "weak", Role.Top, "enemyB", Role.Middle, 40);
+
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            defaultConfig,
+        );
+        const strong = findTopSuggestion(suggestions, "strong");
+        const weak = findTopSuggestion(suggestions, "weak");
+
+        expect(strong.blindabilityResult.synergyGap).toBeCloseTo(
+            weak.blindabilityResult.synergyGap,
+        );
+        expect(strong.blindabilityResult.matchupGap).toBeCloseTo(
+            weak.blindabilityResult.matchupGap,
+        );
+        expect(strong.blindabilityResult.synergyScore).toBeGreaterThan(
+            weak.blindabilityResult.synergyScore,
+        );
+        expect(strong.blindabilityResult.matchupScore).toBeGreaterThan(
+            weak.blindabilityResult.matchupScore,
+        );
+        expect(strong.blindabilityResult.totalRating).toBeGreaterThan(0);
+        expect(weak.blindabilityResult.totalRating).toBeLessThan(0);
     });
 
     test("scales synergy and matchup components independently", () => {

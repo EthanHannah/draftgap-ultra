@@ -19,6 +19,8 @@ export type SuggestionConfig = AnalyzeDraftConfig & {
 export type BlindabilityResult = {
     synergyGap: number;
     matchupGap: number;
+    synergyScore: number;
+    matchupScore: number;
     synergyConfidence: number;
     matchupConfidence: number;
     synergyRating: number;
@@ -38,12 +40,14 @@ export interface Suggestion {
 type RawSuggestion = Omit<Suggestion, "blindabilityResult"> & {
     synergyGap: number;
     matchupGap: number;
+    synergyScore: number;
+    matchupScore: number;
     synergyConfidence: number;
     matchupConfidence: number;
 };
 
 // A suggested champion can have four unknown allies and five unknown opponents.
-// Calibrate their summed spreads to the scale of one normal interaction so
+// Calibrate their summed risk-adjusted scores to one normal interaction so
 // blindability remains a secondary modifier while still fading as slots fill.
 const MAX_UNKNOWN_INTERACTIONS = ROLES.length * 2 - 1;
 
@@ -60,6 +64,18 @@ function getRatingGap(ratings: number[]) {
     if (ratings.length < 2) return 0;
 
     return Math.max(...ratings) - Math.min(...ratings);
+}
+
+function getBlindabilityScore(ratings: number[]) {
+    if (ratings.length === 0) return { gap: 0, score: 0 };
+
+    const gap = getRatingGap(ratings);
+    const mean =
+        ratings.reduce((total, rating) => total + rating, 0) / ratings.length;
+
+    // Reward strong average interactions while charging half the full spread
+    // for the risk of an unfavorable unknown pick.
+    return { gap, score: mean - gap / 2 };
 }
 
 function getWeight(value: number) {
@@ -184,6 +200,7 @@ export function getSuggestions(
                 (unknownRole) => unknownRole !== role,
             );
             let synergyGap = 0;
+            let synergyScore = 0;
             let synergyGames = 0;
             let synergyInteractionCount = 0;
             for (const teammateRole of unknownAllyRoles) {
@@ -197,9 +214,11 @@ export function getSuggestions(
                             teammateRole,
                         ),
                     );
-                synergyGap += getRatingGap(
+                const blindability = getBlindabilityScore(
                     results.map((result) => result.rating),
                 );
+                synergyGap += blindability.gap;
+                synergyScore += blindability.score;
                 synergyGames += results.reduce(
                     (games, result) => games + result.games,
                     0,
@@ -208,6 +227,7 @@ export function getSuggestions(
             }
 
             let matchupGap = 0;
+            let matchupScore = 0;
             let matchupGames = 0;
             let matchupInteractionCount = 0;
             for (const opponentRole of remainingEnemyRoles) {
@@ -221,9 +241,11 @@ export function getSuggestions(
                             opponentRole,
                         ),
                     );
-                matchupGap += getRatingGap(
+                const blindability = getBlindabilityScore(
                     results.map((result) => result.rating),
                 );
+                matchupGap += blindability.gap;
+                matchupScore += blindability.score;
                 matchupGames += results.reduce(
                     (games, result) => games + result.games,
                     0,
@@ -258,55 +280,57 @@ export function getSuggestions(
                 draftResult,
                 synergyGap,
                 matchupGap,
+                synergyScore,
+                matchupScore,
                 synergyConfidence,
                 matchupConfidence,
             });
         }
     }
 
-    const gapTotalsByRole = new Map<
+    const scoreTotalsByRole = new Map<
         Role,
         {
             synergyConfidence: number;
             matchupConfidence: number;
-            weightedSynergyGap: number;
-            weightedMatchupGap: number;
+            weightedSynergyScore: number;
+            weightedMatchupScore: number;
         }
     >();
 
     for (const suggestion of rawSuggestions) {
         if (bannedChampions.has(suggestion.championKey)) continue;
 
-        const totals = gapTotalsByRole.get(suggestion.role) ?? {
+        const totals = scoreTotalsByRole.get(suggestion.role) ?? {
             synergyConfidence: 0,
             matchupConfidence: 0,
-            weightedSynergyGap: 0,
-            weightedMatchupGap: 0,
+            weightedSynergyScore: 0,
+            weightedMatchupScore: 0,
         };
         totals.synergyConfidence += suggestion.synergyConfidence;
         totals.matchupConfidence += suggestion.matchupConfidence;
-        totals.weightedSynergyGap +=
-            suggestion.synergyGap * suggestion.synergyConfidence;
-        totals.weightedMatchupGap +=
-            suggestion.matchupGap * suggestion.matchupConfidence;
-        gapTotalsByRole.set(suggestion.role, totals);
+        totals.weightedSynergyScore +=
+            suggestion.synergyScore * suggestion.synergyConfidence;
+        totals.weightedMatchupScore +=
+            suggestion.matchupScore * suggestion.matchupConfidence;
+        scoreTotalsByRole.set(suggestion.role, totals);
     }
 
     const suggestions = rawSuggestions.map<Suggestion>((suggestion) => {
-        const roleTotals = gapTotalsByRole.get(suggestion.role);
-        const meanSynergyGap = roleTotals?.synergyConfidence
-            ? roleTotals.weightedSynergyGap / roleTotals.synergyConfidence
-            : suggestion.synergyGap;
-        const meanMatchupGap = roleTotals?.matchupConfidence
-            ? roleTotals.weightedMatchupGap / roleTotals.matchupConfidence
-            : suggestion.matchupGap;
+        const roleTotals = scoreTotalsByRole.get(suggestion.role);
+        const meanSynergyScore = roleTotals?.synergyConfidence
+            ? roleTotals.weightedSynergyScore / roleTotals.synergyConfidence
+            : suggestion.synergyScore;
+        const meanMatchupScore = roleTotals?.matchupConfidence
+            ? roleTotals.weightedMatchupScore / roleTotals.matchupConfidence
+            : suggestion.matchupScore;
         const synergyRating =
-            (meanSynergyGap - suggestion.synergyGap) *
+            (suggestion.synergyScore - meanSynergyScore) *
             suggestion.synergyConfidence *
             (getWeight(config.synergyBlindabilityWeight) /
                 MAX_UNKNOWN_INTERACTIONS);
         const matchupRating =
-            (meanMatchupGap - suggestion.matchupGap) *
+            (suggestion.matchupScore - meanMatchupScore) *
             suggestion.matchupConfidence *
             (getWeight(config.matchupBlindabilityWeight) /
                 MAX_UNKNOWN_INTERACTIONS);
@@ -320,6 +344,8 @@ export function getSuggestions(
             blindabilityResult: {
                 synergyGap: suggestion.synergyGap,
                 matchupGap: suggestion.matchupGap,
+                synergyScore: suggestion.synergyScore,
+                matchupScore: suggestion.matchupScore,
                 synergyConfidence: suggestion.synergyConfidence,
                 matchupConfidence: suggestion.matchupConfidence,
                 synergyRating,
