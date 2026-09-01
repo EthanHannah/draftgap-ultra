@@ -35,6 +35,7 @@ export default function SettingsDialog() {
         matchupRoleWeights: { ...config.matchupRoleWeights },
         duoRoleWeights: { ...config.duoRoleWeights },
         blindabilityWeight: config.blindabilityWeight,
+        enemySafetyPriority: config.enemySafetyPriority,
     });
 
     function updateRoleWeight(type: RoleWeightType, role: Role, value: number) {
@@ -254,14 +255,15 @@ export default function SettingsDialog() {
                         teammates and exposure to likely enemy counters.
                         Teammates are weighted by pick rate. Counter likelihood
                         blends pick rate with equal champion coverage, so niche
-                        counterpicks still matter after you reveal a pick. Soft
-                        counters scale with their estimated downside; hard
-                        counters—matchups at least 2 percentage points worse
-                        than expected—count extra. The direct-role opponent is
-                        primary; all four non-lane roles together receive half
-                        as much weight. Results are compared with viable choices
-                        in the same role, and sparse interactions are pulled
-                        toward neutral by the selected risk level.
+                        counterpicks still matter after you reveal a pick.
+                        Counter penalties increase smoothly with estimated
+                        downside, so severe counters matter progressively more
+                        without a hard scoring cutoff. The direct-role opponent
+                        is primary; all four non-lane roles together receive
+                        half as much weight. Results are compared with viable
+                        choices in the same role, and sparse interactions are
+                        pulled toward neutral by the selected risk level. Enemy
+                        safety receives more weight by default for solo queue.
                     </p>
                     <div class="mt-3">
                         <label class="grid gap-1">
@@ -288,6 +290,35 @@ export default function SettingsDialog() {
                                 onChange={(event) =>
                                     setConfig({
                                         blindabilityWeight:
+                                            event.currentTarget.valueAsNumber,
+                                    })
+                                }
+                            />
+                        </label>
+                        <label class="mt-3 grid gap-1">
+                            <span class="flex justify-between gap-2 text-sm uppercase">
+                                <span>Enemy safety priority</span>
+                                <span class="tabular-nums opacity-70">
+                                    {draftWeights.enemySafetyPriority}%
+                                </span>
+                            </span>
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="5"
+                                class="w-full accent-secondary"
+                                value={draftWeights.enemySafetyPriority}
+                                aria-label="Enemy safety priority"
+                                onInput={(event) =>
+                                    setDraftWeights(
+                                        "enemySafetyPriority",
+                                        event.currentTarget.valueAsNumber,
+                                    )
+                                }
+                                onChange={(event) =>
+                                    setConfig({
+                                        enemySafetyPriority:
                                             event.currentTarget.valueAsNumber,
                                     })
                                 }

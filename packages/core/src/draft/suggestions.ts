@@ -16,12 +16,13 @@ import { getStats } from "./utils";
 
 export type SuggestionConfig = AnalyzeDraftConfig & {
     blindabilityWeight: number;
+    enemySafetyPriority: number;
 };
 
 export type BlindabilityResult = {
     synergyGap: number;
     matchupGap: number;
-    counterRate: number;
+    counterExposure: number;
     hardCounterRate: number;
     synergyScore: number;
     matchupScore: number;
@@ -42,7 +43,7 @@ export interface Suggestion {
 type RawSuggestion = Omit<Suggestion, "blindabilityResult"> & {
     synergyGap: number;
     matchupGap: number;
-    counterRate: number;
+    counterExposure: number;
     hardCounterRate: number;
     synergyScore: number;
     matchupScore: number;
@@ -55,7 +56,7 @@ const BLINDABILITY_LOWER_TAIL_FRACTION = 0.2;
 // awkward teammates is not treated as universally easy to fit into a draft.
 const BLINDABILITY_LOWER_TAIL_WEIGHT = 0.5;
 const HARD_COUNTER_WINRATE = 0.48;
-const HARD_COUNTER_EXTRA_WEIGHT = 2;
+const MAX_COUNTER_EXPOSURE = 4;
 const COUNTER_EXPOSURE_RATING_SCALE = 50;
 // Opponents can react to a revealed first pick, so retain equal coverage for
 // niche counterpicks instead of relying entirely on unconditional pick rate.
@@ -165,21 +166,25 @@ function getCounterExposureScore(interactions: WeightedInteraction[]) {
             Number.isFinite(rating) && Number.isFinite(weight) && weight > 0,
     );
     if (weightedInteractions.length === 0) {
-        return { counterRate: 0, hardCounterRate: 0, score: 0 };
+        return { counterExposure: 0, hardCounterRate: 0, score: 0 };
     }
 
     const totalWeight = weightedInteractions.reduce(
         (total, interaction) => total + interaction.weight,
         0,
     );
-    const counterWeight = weightedInteractions.reduce((total, interaction) => {
-        const winrate = ratingToWinrate(interaction.rating);
-        const counterSeverity = Math.min(
-            1,
-            Math.max(0, (0.5 - winrate) / (0.5 - HARD_COUNTER_WINRATE)),
+    const exposureWeight = weightedInteractions.reduce((total, interaction) => {
+        const interactionWinrate = ratingToWinrate(interaction.rating);
+        const normalizedDownside = Math.max(
+            0,
+            (0.5 - interactionWinrate) / (0.5 - HARD_COUNTER_WINRATE),
+        );
+        const exposure = Math.min(
+            MAX_COUNTER_EXPOSURE,
+            normalizedDownside ** 2,
         );
 
-        return total + counterSeverity * interaction.weight;
+        return total + exposure * interaction.weight;
     }, 0);
     const hardCounterWeight = weightedInteractions.reduce(
         (total, interaction) =>
@@ -189,19 +194,17 @@ function getCounterExposureScore(interactions: WeightedInteraction[]) {
                 : 0),
         0,
     );
-    const counterRate = counterWeight / totalWeight;
+    const counterExposure = exposureWeight / totalWeight;
     const hardCounterRate = hardCounterWeight / totalWeight;
 
-    // Soft counters contribute in proportion to their posterior downside, so
-    // sparse estimates near neutral stay small. A hard counter is already one
-    // full unit in counterRate; count it twice more so it matters as much as
-    // three ordinary counters. Favorable matchups cannot hide risk.
-    const exposure = counterRate + hardCounterRate * HARD_COUNTER_EXTRA_WEIGHT;
+    // The convex curve keeps estimates near neutral small and progressively
+    // increases the penalty for severe counters without a scoring cliff. The
+    // hard-counter threshold is retained only as a diagnostic.
 
     return {
-        counterRate,
+        counterExposure,
         hardCounterRate,
-        score: -exposure * COUNTER_EXPOSURE_RATING_SCALE,
+        score: -counterExposure * COUNTER_EXPOSURE_RATING_SCALE,
     };
 }
 
@@ -435,9 +438,9 @@ export function getSuggestionsWithRoleUncertainty(
 
             let matchupGap = 0;
             let matchupScore = 0;
-            let counterRate = 0;
+            let counterExposure = 0;
             let hardCounterRate = 0;
-            let counterRateWeight = 0;
+            let counterExposureWeight = 0;
             const matchupInteractions: { games: number; weight: number }[] = [];
             for (const opponentRole of ROLES) {
                 const matchupRoleWeight =
@@ -468,14 +471,15 @@ export function getSuggestionsWithRoleUncertainty(
                 }));
                 const matchupDistribution =
                     getAllyFitInteractionScore(weightedRatings);
-                const counterExposure =
+                const counterExposureResult =
                     getCounterExposureScore(weightedRatings);
                 matchupGap += matchupDistribution.gap * roleProbability;
-                matchupScore += counterExposure.score * roleProbability;
-                counterRate += counterExposure.counterRate * roleProbability;
+                matchupScore += counterExposureResult.score * roleProbability;
+                counterExposure +=
+                    counterExposureResult.counterExposure * roleProbability;
                 hardCounterRate +=
-                    counterExposure.hardCounterRate * roleProbability;
-                counterRateWeight += roleProbability;
+                    counterExposureResult.hardCounterRate * roleProbability;
+                counterExposureWeight += roleProbability;
                 matchupInteractions.push(
                     ...results.map(({ result, weight }) => ({
                         games: result.games,
@@ -483,9 +487,9 @@ export function getSuggestionsWithRoleUncertainty(
                     })),
                 );
             }
-            if (counterRateWeight > 0) {
-                counterRate /= counterRateWeight;
-                hardCounterRate /= counterRateWeight;
+            if (counterExposureWeight > 0) {
+                counterExposure /= counterExposureWeight;
+                hardCounterRate /= counterExposureWeight;
             }
 
             const synergyConfidence = getInteractionConfidence(
@@ -523,7 +527,7 @@ export function getSuggestionsWithRoleUncertainty(
                 draftResult,
                 synergyGap,
                 matchupGap,
-                counterRate,
+                counterExposure,
                 hardCounterRate,
                 synergyScore,
                 matchupScore,
@@ -583,8 +587,13 @@ export function getSuggestionsWithRoleUncertainty(
             suggestion.matchupConfidence === 0
                 ? 0
                 : suggestion.matchupScore - meanMatchupScore;
+        const enemySafetyShare = getWeight(config.enemySafetyPriority);
+        const allyFitShare = 1 - enemySafetyShare;
+        // Multiplying both shares by two preserves the previous total scale at
+        // 50/50 while allowing solo-queue users to prioritize enemy safety.
         const rating =
-            (synergyRating + matchupRating) *
+            (synergyRating * allyFitShare * 2 +
+                matchupRating * enemySafetyShare * 2) *
             getWeight(config.blindabilityWeight);
         const adjustedRating =
             winrateToRating(suggestion.draftResult.winrate) + rating;
@@ -596,7 +605,7 @@ export function getSuggestionsWithRoleUncertainty(
             blindabilityResult: {
                 synergyGap: suggestion.synergyGap,
                 matchupGap: suggestion.matchupGap,
-                counterRate: suggestion.counterRate,
+                counterExposure: suggestion.counterExposure,
                 hardCounterRate: suggestion.hardCounterRate,
                 synergyScore: suggestion.synergyScore,
                 matchupScore: suggestion.matchupScore,

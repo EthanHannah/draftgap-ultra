@@ -25,6 +25,7 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     banPlacement: "bottom",
     unownedPlacement: "bottom",
     blindabilityWeight: 100,
+    enemySafetyPriority: 75,
     showAdvancedWinrates: false,
     language: "en_US",
 
@@ -68,12 +69,22 @@ function createConfig() {
                   0,
               ) / legacyBlindabilityWeights.length
             : DEFAULT_CONFIG.blindabilityWeight);
+    const legacyBlindabilityWeightTotal =
+        (synergyBlindabilityWeight ?? 0) + (matchupBlindabilityWeight ?? 0);
+    const enemySafetyPriority =
+        partialInitialConfig.enemySafetyPriority ??
+        (legacyBlindabilityWeightTotal > 0
+            ? ((matchupBlindabilityWeight ?? 0) /
+                  legacyBlindabilityWeightTotal) *
+              100
+            : DEFAULT_CONFIG.enemySafetyPriority);
 
     const [config, setConfig] = createStore<DraftGapConfig>({
         ...DEFAULT_CONFIG,
         ...partialInitialConfig,
         championWinrateInfluence,
         blindabilityWeight,
+        enemySafetyPriority,
     });
     createEffect(() => {
         localStorage.setItem(CONFIG_KEY, JSON.stringify(config));

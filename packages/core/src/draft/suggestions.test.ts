@@ -136,6 +136,7 @@ const defaultConfig: SuggestionConfig = {
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     blindabilityWeight: 100,
+    enemySafetyPriority: 75,
 };
 
 function findTopSuggestion(
@@ -302,6 +303,41 @@ describe("suggestion blindability", () => {
         );
     });
 
+    test("changes counter exposure smoothly across the hard-counter threshold", () => {
+        const dataset = createDataset([
+            "justAbove",
+            "justBelow",
+            "neutral",
+            "enemy",
+        ]);
+        for (const championKey of Object.keys(dataset.championData)) {
+            makeViable(dataset, championKey, Role.Top);
+        }
+
+        setMatchup(dataset, "justAbove", Role.Top, "enemy", Role.Top, 29);
+        setMatchup(dataset, "justBelow", Role.Top, "enemy", Role.Top, 28);
+
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            defaultConfig,
+        );
+        const justAbove = findTopSuggestion(suggestions, "justAbove");
+        const justBelow = findTopSuggestion(suggestions, "justBelow");
+
+        expect(justBelow.blindabilityResult.hardCounterRate).toBeGreaterThan(
+            justAbove.blindabilityResult.hardCounterRate,
+        );
+        expect(justBelow.blindabilityResult.counterExposure).toBeGreaterThan(
+            justAbove.blindabilityResult.counterExposure,
+        );
+        expect(justBelow.blindabilityResult.counterExposure).toBeLessThan(
+            justAbove.blindabilityResult.counterExposure * 1.2,
+        );
+    });
+
     test("makes sparse negative matchups contribute less than established counters", () => {
         const dataset = createDataset([
             "sparseExposed",
@@ -336,9 +372,11 @@ describe("suggestion blindability", () => {
             "supportedExposed",
         );
 
-        expect(sparseExposed.blindabilityResult.counterRate).toBeGreaterThan(0);
-        expect(sparseExposed.blindabilityResult.counterRate).toBeLessThan(
-            supportedExposed.blindabilityResult.counterRate,
+        expect(
+            sparseExposed.blindabilityResult.counterExposure,
+        ).toBeGreaterThan(0);
+        expect(sparseExposed.blindabilityResult.counterExposure).toBeLessThan(
+            supportedExposed.blindabilityResult.counterExposure,
         );
         expect(sparseExposed.blindabilityResult.matchupScore).toBeGreaterThan(
             supportedExposed.blindabilityResult.matchupScore,
@@ -442,8 +480,8 @@ describe("suggestion blindability", () => {
         expect(commonFavored.blindabilityResult.matchupScore).toBeGreaterThan(
             rareFavored.blindabilityResult.matchupScore,
         );
-        expect(rareFavored.blindabilityResult.counterRate).toBeGreaterThan(
-            commonFavored.blindabilityResult.counterRate * 3,
+        expect(rareFavored.blindabilityResult.counterExposure).toBeGreaterThan(
+            commonFavored.blindabilityResult.counterExposure * 3,
         );
         expect(rareFavored.blindabilityResult.synergyScore).toBeLessThan(
             neutral.blindabilityResult.synergyScore,
@@ -486,6 +524,54 @@ describe("suggestion blindability", () => {
         expect(disabled.blindabilityResult.rating).toBe(0);
         expect(disabled.blindabilityResult.adjustedWinrate).toBeCloseTo(
             disabled.draftResult.winrate,
+        );
+    });
+
+    test("lets enemy safety take priority over unknown ally fit", () => {
+        const dataset = createDataset([
+            "allyFit",
+            "enemySafe",
+            "ally",
+            "enemy",
+        ]);
+        makeViable(dataset, "allyFit", Role.Top);
+        makeViable(dataset, "enemySafe", Role.Top);
+        makeViable(dataset, "ally", Role.Jungle);
+        makeViable(dataset, "enemy", Role.Top);
+
+        setDuo(dataset, "allyFit", Role.Top, "ally", Role.Jungle, 60);
+        setDuo(dataset, "enemySafe", Role.Top, "ally", Role.Jungle, 40);
+        setMatchup(dataset, "allyFit", Role.Top, "enemy", Role.Top, 40);
+        setMatchup(dataset, "enemySafe", Role.Top, "enemy", Role.Top, 60);
+
+        const getCandidatesAtPriority = (enemySafetyPriority: number) => {
+            const suggestions = getSuggestions(
+                dataset,
+                dataset,
+                new Map(),
+                new Map(),
+                {
+                    ...defaultConfig,
+                    enemySafetyPriority,
+                },
+            );
+
+            return {
+                allyFit: findTopSuggestion(suggestions, "allyFit"),
+                enemySafe: findTopSuggestion(suggestions, "enemySafe"),
+            };
+        };
+        const allyFocused = getCandidatesAtPriority(25);
+        const enemyFocused = getCandidatesAtPriority(75);
+
+        expect(allyFocused.allyFit.blindabilityResult.rating).toBeGreaterThan(
+            allyFocused.enemySafe.blindabilityResult.rating,
+        );
+        expect(
+            enemyFocused.enemySafe.blindabilityResult.rating,
+        ).toBeGreaterThan(enemyFocused.allyFit.blindabilityResult.rating);
+        expect(enemyFocused.allyFit.draftResult.winrate).toBeCloseTo(
+            allyFocused.allyFit.draftResult.winrate,
         );
     });
 

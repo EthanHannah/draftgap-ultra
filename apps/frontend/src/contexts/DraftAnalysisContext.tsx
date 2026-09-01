@@ -77,6 +77,7 @@ export function createDraftAnalysisContext() {
     const suggestionConfig = () => ({
         ...draftAnalysisConfig(),
         blindabilityWeight: config.blindabilityWeight,
+        enemySafetyPriority: config.enemySafetyPriority,
     });
 
     const allyDraftAnalysis = createMemo(() => {
