@@ -252,11 +252,13 @@ export default function SettingsDialog() {
                     <legend class="text-lg uppercase">Blindability</legend>
                     <p class="text-sm opacity-60">
                         Reward champions with strong, consistent results across
-                        unknown teammates and opponents. The score balances the
-                        average result against the risk of an unfavorable pick.
-                        At 100%, it is calibrated to about one champion
-                        interaction, and sparse data stays close to neutral. Set
-                        a weight to 0% to ignore that kind of blindability.
+                        unknown teammates and opponents, weighted by how often
+                        each champion is played in that role. The score balances
+                        the average result against the least favorable 20% of
+                        likely picks. At 100%, it is calibrated to about one
+                        champion interaction, and sparse data stays close to
+                        neutral. Set a weight to 0% to ignore that kind of
+                        blindability.
                     </p>
                     <div class="mt-3 grid grid-cols-2 gap-4">
                         <label class="grid gap-1">

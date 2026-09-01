@@ -236,6 +236,143 @@ describe("suggestion blindability", () => {
         expect(weak.blindabilityResult.totalRating).toBeLessThan(0);
     });
 
+    test("does not penalize a champion for gaining an unusually strong matchup", () => {
+        const dataset = createDataset([
+            "upside",
+            "neutral",
+            "enemyA",
+            "enemyB",
+            "enemyC",
+        ]);
+        makeViable(dataset, "upside", Role.Top);
+        makeViable(dataset, "neutral", Role.Top);
+        makeViable(dataset, "enemyA", Role.Middle);
+        makeViable(dataset, "enemyB", Role.Middle);
+        makeViable(dataset, "enemyC", Role.Middle);
+
+        setMatchup(dataset, "upside", Role.Top, "enemyA", Role.Middle, 50);
+        setMatchup(dataset, "upside", Role.Top, "enemyB", Role.Middle, 50);
+        setMatchup(dataset, "upside", Role.Top, "enemyC", Role.Middle, 60);
+        setMatchup(dataset, "neutral", Role.Top, "enemyA", Role.Middle, 50);
+        setMatchup(dataset, "neutral", Role.Top, "enemyB", Role.Middle, 50);
+        setMatchup(dataset, "neutral", Role.Top, "enemyC", Role.Middle, 50);
+
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            defaultConfig,
+        );
+        const upside = findTopSuggestion(suggestions, "upside");
+        const neutral = findTopSuggestion(suggestions, "neutral");
+
+        expect(upside.blindabilityResult.matchupScore).toBeGreaterThan(
+            neutral.blindabilityResult.matchupScore,
+        );
+        expect(upside.blindabilityResult.matchupRating).toBeGreaterThan(
+            neutral.blindabilityResult.matchupRating,
+        );
+    });
+
+    test("weights unknown teammates and opponents by role pick frequency", () => {
+        const dataset = createDataset([
+            "commonFavored",
+            "rareFavored",
+            "neutral",
+            "common",
+            "rare",
+        ]);
+        makeViable(dataset, "commonFavored", Role.Top);
+        makeViable(dataset, "rareFavored", Role.Top);
+        makeViable(dataset, "neutral", Role.Top);
+        makeViable(dataset, "common", Role.Jungle, 9000);
+        makeViable(dataset, "rare", Role.Jungle, 1000);
+        makeViable(dataset, "common", Role.Middle, 9000);
+        makeViable(dataset, "rare", Role.Middle, 1000);
+
+        for (const role of [Role.Jungle, Role.Middle]) {
+            const setInteraction =
+                role === Role.Jungle ? setDuo : setMatchup;
+
+            setInteraction(
+                dataset,
+                "commonFavored",
+                Role.Top,
+                "common",
+                role,
+                60,
+            );
+            setInteraction(
+                dataset,
+                "commonFavored",
+                Role.Top,
+                "rare",
+                role,
+                40,
+            );
+            setInteraction(
+                dataset,
+                "rareFavored",
+                Role.Top,
+                "common",
+                role,
+                40,
+            );
+            setInteraction(
+                dataset,
+                "rareFavored",
+                Role.Top,
+                "rare",
+                role,
+                60,
+            );
+            setInteraction(
+                dataset,
+                "neutral",
+                Role.Top,
+                "common",
+                role,
+                50,
+            );
+            setInteraction(
+                dataset,
+                "neutral",
+                Role.Top,
+                "rare",
+                role,
+                50,
+            );
+        }
+
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            defaultConfig,
+        );
+        const commonFavored = findTopSuggestion(
+            suggestions,
+            "commonFavored",
+        );
+        const rareFavored = findTopSuggestion(suggestions, "rareFavored");
+        const neutral = findTopSuggestion(suggestions, "neutral");
+
+        expect(commonFavored.blindabilityResult.synergyScore).toBeGreaterThan(
+            neutral.blindabilityResult.synergyScore,
+        );
+        expect(commonFavored.blindabilityResult.matchupScore).toBeGreaterThan(
+            neutral.blindabilityResult.matchupScore,
+        );
+        expect(rareFavored.blindabilityResult.synergyScore).toBeLessThan(
+            neutral.blindabilityResult.synergyScore,
+        );
+        expect(rareFavored.blindabilityResult.matchupScore).toBeLessThan(
+            neutral.blindabilityResult.matchupScore,
+        );
+    });
+
     test("scales synergy and matchup components independently", () => {
         const dataset = createBlindabilityDataset();
         const full = findTopSuggestion(

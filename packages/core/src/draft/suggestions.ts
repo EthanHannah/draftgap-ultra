@@ -50,6 +50,17 @@ type RawSuggestion = Omit<Suggestion, "blindabilityResult"> & {
 // Calibrate their summed risk-adjusted scores to one normal interaction so
 // blindability remains a secondary modifier while still fading as slots fill.
 const MAX_UNKNOWN_INTERACTIONS = ROLES.length * 2 - 1;
+const BLINDABILITY_LOWER_TAIL_FRACTION = 0.2;
+
+type WeightedInteraction = {
+    rating: number;
+    weight: number;
+};
+
+type AvailableChampion = {
+    championKey: string;
+    pickWeight: number;
+};
 
 function isEligibleInRole(
     dataset: Dataset,
@@ -60,21 +71,50 @@ function isEligibleInRole(
     return (getStats(dataset, championKey, role).games / 30) * 7 >= minGames;
 }
 
-function getRatingGap(ratings: number[]) {
-    if (ratings.length < 2) return 0;
+function getBlindabilityScore(interactions: WeightedInteraction[]) {
+    const weightedInteractions = interactions.filter(
+        ({ rating, weight }) =>
+            Number.isFinite(rating) && Number.isFinite(weight) && weight > 0,
+    );
+    if (weightedInteractions.length === 0) return { gap: 0, score: 0 };
 
-    return Math.max(...ratings) - Math.min(...ratings);
-}
-
-function getBlindabilityScore(ratings: number[]) {
-    if (ratings.length === 0) return { gap: 0, score: 0 };
-
-    const gap = getRatingGap(ratings);
+    const totalWeight = weightedInteractions.reduce(
+        (total, interaction) => total + interaction.weight,
+        0,
+    );
     const mean =
-        ratings.reduce((total, rating) => total + rating, 0) / ratings.length;
+        weightedInteractions.reduce(
+            (total, interaction) =>
+                total + interaction.rating * interaction.weight,
+            0,
+        ) / totalWeight;
 
-    // Reward strong average interactions while charging half the full spread
-    // for the risk of an unfavorable unknown pick.
+    // Use the average result from the most unfavorable 20% of likely picks as
+    // the downside case. Unlike the full range, this cannot punish a champion
+    // for gaining an unusually strong interaction and is less sensitive to a
+    // single rare outlier.
+    const lowerTailWeight = totalWeight * BLINDABILITY_LOWER_TAIL_FRACTION;
+    let remainingTailWeight = lowerTailWeight;
+    let lowerTailRating = 0;
+    const sortedInteractions = [...weightedInteractions].sort(
+        (a, b) => a.rating - b.rating,
+    );
+
+    for (const interaction of sortedInteractions) {
+        if (remainingTailWeight <= 0) break;
+
+        const includedWeight = Math.min(
+            interaction.weight,
+            remainingTailWeight,
+        );
+        lowerTailRating += interaction.rating * includedWeight;
+        remainingTailWeight -= includedWeight;
+    }
+
+    const lowerTailMean = lowerTailRating / lowerTailWeight;
+    const gap = Math.max(0, mean - lowerTailMean);
+
+    // Blend expected performance and downside performance evenly.
     return { gap, score: mean - gap / 2 };
 }
 
@@ -83,13 +123,29 @@ function getWeight(value: number) {
 }
 
 function getInteractionConfidence(
-    observedGames: number,
-    interactionCount: number,
+    interactions: { games: number; weight: number }[],
     priorGames: number,
 ) {
-    if (interactionCount === 0) return 0;
+    const weightedInteractions = interactions.filter(
+        ({ games, weight }) =>
+            Number.isFinite(games) &&
+            Number.isFinite(weight) &&
+            games >= 0 &&
+            weight > 0,
+    );
+    if (weightedInteractions.length === 0) return 0;
 
-    return observedGames / (observedGames + priorGames * interactionCount);
+    const totalWeight = weightedInteractions.reduce(
+        (total, interaction) => total + interaction.weight,
+        0,
+    );
+    const weightedGames = weightedInteractions.reduce(
+        (total, interaction) =>
+            total + interaction.games * interaction.weight,
+        0,
+    );
+
+    return weightedGames / (weightedGames + priorGames * totalWeight);
 }
 
 export function getSuggestions(
@@ -113,18 +169,27 @@ export function getSuggestions(
     const availableChampionsByRole = Object.fromEntries(
         ROLES.map((role) => [
             role,
-            Object.keys(dataset.championData).filter(
-                (championKey) =>
-                    !unavailableChampions.has(championKey) &&
-                    isEligibleInRole(
+            Object.keys(dataset.championData)
+                .filter(
+                    (championKey) =>
+                        !unavailableChampions.has(championKey) &&
+                        isEligibleInRole(
+                            synergyMatchupDataset,
+                            championKey,
+                            role,
+                            config.minGames,
+                        ),
+                )
+                .map((championKey) => ({
+                    championKey,
+                    pickWeight: getStats(
                         synergyMatchupDataset,
                         championKey,
                         role,
-                        config.minGames,
-                    ),
-            ),
+                    ).games,
+                })),
         ]),
-    ) as Record<Role, string[]>;
+    ) as Record<Role, AvailableChampion[]>;
     const priorGames = priorGamesByRiskLevel[config.riskLevel];
     const duoResultCache = new Map<string, ReturnType<typeof analyzeDuo>>();
     const matchupResultCache = new Map<
@@ -201,66 +266,78 @@ export function getSuggestions(
             );
             let synergyGap = 0;
             let synergyScore = 0;
-            let synergyGames = 0;
-            let synergyInteractionCount = 0;
+            const synergyInteractions: { games: number; weight: number }[] = [];
             for (const teammateRole of unknownAllyRoles) {
                 const results = availableChampionsByRole[teammateRole]
-                    .filter((teammateKey) => teammateKey !== championKey)
-                    .map((teammateKey) =>
-                        getDuoResult(
+                    .filter(
+                        (teammate) =>
+                            teammate.championKey !== championKey,
+                    )
+                    .map((teammate) => ({
+                        result: getDuoResult(
                             championKey,
                             role,
-                            teammateKey,
+                            teammate.championKey,
                             teammateRole,
                         ),
-                    );
+                        weight: teammate.pickWeight,
+                    }));
                 const blindability = getBlindabilityScore(
-                    results.map((result) => result.rating),
+                    results.map(({ result, weight }) => ({
+                        rating: result.rating,
+                        weight,
+                    })),
                 );
                 synergyGap += blindability.gap;
                 synergyScore += blindability.score;
-                synergyGames += results.reduce(
-                    (games, result) => games + result.games,
-                    0,
+                synergyInteractions.push(
+                    ...results.map(({ result, weight }) => ({
+                        games: result.games,
+                        weight,
+                    })),
                 );
-                synergyInteractionCount += results.length;
             }
 
             let matchupGap = 0;
             let matchupScore = 0;
-            let matchupGames = 0;
-            let matchupInteractionCount = 0;
+            const matchupInteractions: { games: number; weight: number }[] = [];
             for (const opponentRole of remainingEnemyRoles) {
                 const results = availableChampionsByRole[opponentRole]
-                    .filter((opponentKey) => opponentKey !== championKey)
-                    .map((opponentKey) =>
-                        getMatchupResult(
+                    .filter(
+                        (opponent) =>
+                            opponent.championKey !== championKey,
+                    )
+                    .map((opponent) => ({
+                        result: getMatchupResult(
                             championKey,
                             role,
-                            opponentKey,
+                            opponent.championKey,
                             opponentRole,
                         ),
-                    );
+                        weight: opponent.pickWeight,
+                    }));
                 const blindability = getBlindabilityScore(
-                    results.map((result) => result.rating),
+                    results.map(({ result, weight }) => ({
+                        rating: result.rating,
+                        weight,
+                    })),
                 );
                 matchupGap += blindability.gap;
                 matchupScore += blindability.score;
-                matchupGames += results.reduce(
-                    (games, result) => games + result.games,
-                    0,
+                matchupInteractions.push(
+                    ...results.map(({ result, weight }) => ({
+                        games: result.games,
+                        weight,
+                    })),
                 );
-                matchupInteractionCount += results.length;
             }
 
             const synergyConfidence = getInteractionConfidence(
-                synergyGames,
-                synergyInteractionCount,
+                synergyInteractions,
                 priorGames,
             );
             const matchupConfidence = getInteractionConfidence(
-                matchupGames,
-                matchupInteractionCount,
+                matchupInteractions,
                 priorGames,
             );
 
