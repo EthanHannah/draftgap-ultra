@@ -23,6 +23,7 @@ import {
     type RiotSummonerSpell,
 } from "./riot";
 import type { SummonerSpellData } from "@draftgap/core/src/models/dataset/SummonerSpellData";
+import { getMissingCompositionProfileIds } from "@draftgap/core/src/composition/profiles";
 
 const BATCH_SIZE = 10;
 
@@ -99,6 +100,15 @@ async function main() {
             },
         },
     }));
+    const missingCompositionProfiles = getMissingCompositionProfileIds(
+        champions.map((champion) => champion.id),
+    );
+    if (missingCompositionProfiles.length > 0) {
+        console.warn(
+            "Missing composition profiles:",
+            missingCompositionProfiles.join(", "),
+        );
+    }
 
     const datasetCurrentPatch = await getDataset(
         currentVersion,

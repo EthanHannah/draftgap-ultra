@@ -24,8 +24,9 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     showFavouritesAtTop: false,
     banPlacement: "bottom",
     unownedPlacement: "bottom",
-    blindabilityWeight: 100,
+    blindabilityWeight: 50,
     enemySafetyPriority: 75,
+    compositionInfluence: 50,
     showAdvancedWinrates: false,
     language: "en_US",
 

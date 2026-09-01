@@ -390,14 +390,30 @@ export default function DraftTable() {
             ),
         },
         {
+            id: "composition",
+            header: () => (
+                <span title="Adjustment for allied composition needs plus a smaller response to known enemy frontline, engage, peel, and waveclear">
+                    Comp Δ
+                </span>
+            ),
+            accessorFn: (suggestion) =>
+                suggestion.adjustedWinrate -
+                suggestion.blindabilityResult.adjustedWinrate,
+            cell: (info) => (
+                <div class="flex justify-end">
+                    <WinrateDeltaText delta={info.getValue<number>()} />
+                </div>
+            ),
+        },
+        {
             id: "final",
             header: () => (
-                <span title="Final recommendation after the blindability adjustment">
+                <span title="Final recommendation after blindability and composition adjustments">
                     Final Δ
                 </span>
             ),
             accessorFn: (suggestion) =>
-                suggestion.blindabilityResult.adjustedWinrate -
+                suggestion.adjustedWinrate -
                 (draftAnalysisBeforePick()?.winrate ?? 0.5),
             cell: (info) => (
                 <div class="flex justify-end">

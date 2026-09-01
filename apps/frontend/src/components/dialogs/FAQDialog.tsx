@@ -21,10 +21,15 @@ export function FAQDialog() {
                 <p class="font-body">
                     DraftGap analyzes a couple of statistics, the base winrates
                     of champions, the winrates of duo's within each team and
-                    every matchup between the two teams. It calulates the
+                    every matchup between the two teams. It also has an optional
+                    composition adjustment for damage balance, frontline, fight
+                    planning through engage or peel, hard crowd control,
+                    waveclear, and sustained damage. A smaller component also
+                    responds to patterns among known enemy picks, such as
+                    multiple frontliners or engage threats. It calculates the
                     winrate of each team comp after picking a possible champion,
-                    and shows this in the table. This method is based of the
-                    work of{" "}
+                    and shows this in the table. The statistical method is based
+                    on the work of{" "}
                     <a
                         href="https://www.youtube.com/@Jayensee"
                         class="text-blue-500"
@@ -50,18 +55,19 @@ export function FAQDialog() {
                 </h2>
                 <p class="font-body">
                     DraftGap is not perfect, and there are several things to
-                    keep in mind. The overall team comp identity is not taken
-                    into account. The synergy of duos within a team are used in
-                    the calculations, but the tool does not know about team comp
-                    identity like 'engage' or 'poke'. Damage composition is also
-                    not used in the calculation (but it is shown, above the team
-                    winrate), so you need to keep this in mind on you own.
+                    keep in mind. Comp Δ covers a focused set of common team
+                    needs, but it does not understand broader identities such as
+                    poke, dive, or split push. Damage balance uses observed role
+                    data; frontline, engage, peel, hard crowd control,
+                    waveclear, and sustained damage use a reviewed champion
+                    profile and are therefore more subjective than the matchup
+                    and duo statistics. Enemy response is deliberately smaller
+                    to avoid double-counting individual matchup data.
                     <br />
-                    These shortcomings result from the fact that there is not
-                    enough data to make a perfect prediction. And we do not want
-                    to incorporate opinions like 'malphite is an engage
-                    champion' into the tool, as using just data is the most
-                    objective way to make a decision.
+                    Composition influence can be reduced or disabled in
+                    settings. No model can perfectly represent how a team will
+                    be played, so Comp Δ should be treated as an additional
+                    drafting signal rather than a guarantee.
                 </p>
             </div>
 

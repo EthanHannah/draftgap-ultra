@@ -26,6 +26,7 @@ export type DraftGapConfig = {
     unownedPlacement: DraftTablePlacement;
     blindabilityWeight: number;
     enemySafetyPriority: number;
+    compositionInfluence: number;
     showAdvancedWinrates: boolean;
     language: string;
 

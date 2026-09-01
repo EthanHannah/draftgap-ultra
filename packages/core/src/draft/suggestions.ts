@@ -13,10 +13,23 @@ import {
     WeightedTeamComp,
 } from "./analysis";
 import { getStats } from "./utils";
+import {
+    COMPOSITION_DIMENSIONS,
+    CompositionCoverage,
+    EnemyCompositionPressures,
+    combineCompositionWinrateDeltas,
+    getCompositionStageWeight,
+    getCompositionWinrateDelta,
+    getEnemyCompositionStageWeight,
+    getEnemyResponseScore,
+    getEnemyResponseWinrateDelta,
+    getTeamCompositionScore,
+} from "../composition/composition";
 
 export type SuggestionConfig = AnalyzeDraftConfig & {
     blindabilityWeight: number;
     enemySafetyPriority: number;
+    compositionInfluence: number;
 };
 
 export type BlindabilityResult = {
@@ -33,14 +46,40 @@ export type BlindabilityResult = {
     adjustedWinrate: number;
 };
 
+export type CompositionResult = {
+    coverage: CompositionCoverage;
+    rawScore: number;
+    centeredScore: number;
+    stageWeight: number;
+    alliedWinrateDelta: number;
+    enemyResponse: {
+        pressures: EnemyCompositionPressures;
+        rawScore: number;
+        centeredScore: number;
+        stageWeight: number;
+        winrateDelta: number;
+    };
+    rating: number;
+    winrateDelta: number;
+};
+
 export interface Suggestion {
     championKey: string;
     role: Role;
     draftResult: DraftResult;
     blindabilityResult: BlindabilityResult;
+    compositionResult: CompositionResult;
+    adjustedRating: number;
+    adjustedWinrate: number;
 }
 
-type RawSuggestion = Omit<Suggestion, "blindabilityResult"> & {
+type RawSuggestion = Omit<
+    Suggestion,
+    | "blindabilityResult"
+    | "compositionResult"
+    | "adjustedRating"
+    | "adjustedWinrate"
+> & {
     synergyGap: number;
     matchupGap: number;
     counterExposure: number;
@@ -49,6 +88,15 @@ type RawSuggestion = Omit<Suggestion, "blindabilityResult"> & {
     matchupScore: number;
     synergyConfidence: number;
     matchupConfidence: number;
+    compositionCoverage: CompositionCoverage;
+    compositionPickWeight: number;
+    compositionScore: number;
+    compositionStageWeight: number;
+    hasCompositionProfiles: boolean;
+    enemyResponsePressures: EnemyCompositionPressures;
+    enemyResponseScore: number;
+    enemyResponseStageWeight: number;
+    hasEnemyResponseProfiles: boolean;
 };
 
 const BLINDABILITY_LOWER_TAIL_FRACTION = 0.2;
@@ -212,6 +260,10 @@ function getWeight(value: number) {
     return Math.min(100, Math.max(0, value)) / 100;
 }
 
+function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}
+
 function getInteractionConfidence(
     interactions: { games: number; weight: number }[],
     priorGames: number,
@@ -265,6 +317,13 @@ export function getSuggestionsWithRoleUncertainty(
 ) {
     const normalizedTeamComps = normalizeTeamComps(teamComps);
     const normalizedEnemyComps = normalizeTeamComps(enemyComps);
+    const enemyCompositionScores = normalizedEnemyComps.map(
+        ([enemy, probability]) => ({
+            enemy,
+            probability,
+            composition: getTeamCompositionScore(dataset, enemy),
+        }),
+    );
     const enemyChampions = new Set(
         normalizedEnemyComps.flatMap(([enemy]) => [...enemy.values()]),
     );
@@ -520,6 +579,67 @@ export function getSuggestionsWithRoleUncertainty(
                     }),
             );
             const draftResult = aggregateDraftResults(draftResults);
+            const compositionPickWeight = getStats(
+                synergyMatchupDataset,
+                championKey,
+                role,
+            ).games;
+            const compositionCoverage = Object.fromEntries(
+                COMPOSITION_DIMENSIONS.map((dimension) => [dimension, 0]),
+            ) as CompositionCoverage;
+            let compositionScore = 0;
+            let compositionStageWeight = 0;
+            let hasCompositionProfiles = true;
+            const enemyResponsePressures: EnemyCompositionPressures = {
+                frontline: 0,
+                engage: 0,
+                peel: 0,
+                waveclear: 0,
+            };
+            let enemyResponseScore = 0;
+            let enemyResponseStageWeight = 0;
+            let hasEnemyResponseProfiles = true;
+
+            for (const [team, teamProbability] of compatibleTeamComps) {
+                const teamWithSuggestion = new Map(team);
+                teamWithSuggestion.set(role, championKey);
+                const composition = getTeamCompositionScore(
+                    dataset,
+                    teamWithSuggestion,
+                );
+
+                hasCompositionProfiles &&= composition.hasProfiles;
+                compositionScore += composition.score * teamProbability;
+                compositionStageWeight +=
+                    getCompositionStageWeight(team.size) * teamProbability;
+                for (const dimension of COMPOSITION_DIMENSIONS) {
+                    compositionCoverage[dimension] +=
+                        composition.coverage[dimension] * teamProbability;
+                }
+
+                for (const enemyResult of enemyCompositionScores) {
+                    const response = getEnemyResponseScore(
+                        composition,
+                        enemyResult.composition,
+                    );
+                    const responseProbability =
+                        teamProbability * enemyResult.probability;
+
+                    hasEnemyResponseProfiles &&=
+                        composition.hasProfiles &&
+                        enemyResult.composition.hasProfiles;
+                    enemyResponseScore += response.score * responseProbability;
+                    enemyResponseStageWeight +=
+                        getEnemyCompositionStageWeight(enemyResult.enemy.size) *
+                        responseProbability;
+                    for (const pressure of Object.keys(
+                        enemyResponsePressures,
+                    ) as (keyof EnemyCompositionPressures)[]) {
+                        enemyResponsePressures[pressure] +=
+                            response.pressures[pressure] * responseProbability;
+                    }
+                }
+            }
 
             rawSuggestions.push({
                 championKey,
@@ -533,6 +653,15 @@ export function getSuggestionsWithRoleUncertainty(
                 matchupScore,
                 synergyConfidence,
                 matchupConfidence,
+                compositionCoverage,
+                compositionPickWeight,
+                compositionScore,
+                compositionStageWeight,
+                hasCompositionProfiles,
+                enemyResponsePressures,
+                enemyResponseScore,
+                enemyResponseStageWeight,
+                hasEnemyResponseProfiles,
             });
         }
     }
@@ -544,6 +673,10 @@ export function getSuggestionsWithRoleUncertainty(
             matchupConfidence: number;
             weightedSynergyScore: number;
             weightedMatchupScore: number;
+            weightedCompositionScore: number;
+            compositionWeight: number;
+            weightedEnemyResponseScore: number;
+            enemyResponseWeight: number;
         }
     >();
 
@@ -555,6 +688,10 @@ export function getSuggestionsWithRoleUncertainty(
             matchupConfidence: 0,
             weightedSynergyScore: 0,
             weightedMatchupScore: 0,
+            weightedCompositionScore: 0,
+            compositionWeight: 0,
+            weightedEnemyResponseScore: 0,
+            enemyResponseWeight: 0,
         };
         totals.synergyConfidence += suggestion.synergyConfidence;
         totals.matchupConfidence += suggestion.matchupConfidence;
@@ -562,6 +699,25 @@ export function getSuggestionsWithRoleUncertainty(
             suggestion.synergyScore * suggestion.synergyConfidence;
         totals.weightedMatchupScore +=
             suggestion.matchupScore * suggestion.matchupConfidence;
+        if (
+            suggestion.hasCompositionProfiles &&
+            Number.isFinite(suggestion.compositionPickWeight) &&
+            suggestion.compositionPickWeight > 0
+        ) {
+            totals.weightedCompositionScore +=
+                suggestion.compositionScore * suggestion.compositionPickWeight;
+            totals.compositionWeight += suggestion.compositionPickWeight;
+        }
+        if (
+            suggestion.hasEnemyResponseProfiles &&
+            Number.isFinite(suggestion.compositionPickWeight) &&
+            suggestion.compositionPickWeight > 0
+        ) {
+            totals.weightedEnemyResponseScore +=
+                suggestion.enemyResponseScore *
+                suggestion.compositionPickWeight;
+            totals.enemyResponseWeight += suggestion.compositionPickWeight;
+        }
         scoreTotalsByRole.set(suggestion.role, totals);
     }
 
@@ -597,6 +753,43 @@ export function getSuggestionsWithRoleUncertainty(
             getWeight(config.blindabilityWeight);
         const adjustedRating =
             winrateToRating(suggestion.draftResult.winrate) + rating;
+        const blindabilityAdjustedWinrate = ratingToWinrate(adjustedRating);
+        // Composition and enemy-response scores use the same viable, recent
+        // role pool, but are centered separately to preserve their scales.
+        const meanCompositionScore = roleTotals?.compositionWeight
+            ? roleTotals.weightedCompositionScore / roleTotals.compositionWeight
+            : suggestion.compositionScore;
+        const centeredCompositionScore = suggestion.hasCompositionProfiles
+            ? suggestion.compositionScore - meanCompositionScore
+            : 0;
+        const compositionWinrateDelta = getCompositionWinrateDelta(
+            centeredCompositionScore,
+            config.compositionInfluence,
+            suggestion.compositionStageWeight,
+        );
+        const meanEnemyResponseScore = roleTotals?.enemyResponseWeight
+            ? roleTotals.weightedEnemyResponseScore /
+              roleTotals.enemyResponseWeight
+            : suggestion.enemyResponseScore;
+        const centeredEnemyResponseScore = suggestion.hasEnemyResponseProfiles
+            ? suggestion.enemyResponseScore - meanEnemyResponseScore
+            : 0;
+        const enemyResponseWinrateDelta = getEnemyResponseWinrateDelta(
+            centeredEnemyResponseScore,
+            config.compositionInfluence,
+            suggestion.enemyResponseStageWeight,
+        );
+        const finalCompositionWinrateDelta = combineCompositionWinrateDeltas(
+            compositionWinrateDelta,
+            enemyResponseWinrateDelta,
+            config.compositionInfluence,
+        );
+        const finalAdjustedWinrate = clamp(
+            blindabilityAdjustedWinrate + finalCompositionWinrateDelta,
+            Number.EPSILON,
+            1 - Number.EPSILON,
+        );
+        const finalAdjustedRating = winrateToRating(finalAdjustedWinrate);
 
         return {
             championKey: suggestion.championKey,
@@ -613,14 +806,28 @@ export function getSuggestionsWithRoleUncertainty(
                 matchupConfidence: suggestion.matchupConfidence,
                 rating,
                 adjustedRating,
-                adjustedWinrate: ratingToWinrate(adjustedRating),
+                adjustedWinrate: blindabilityAdjustedWinrate,
             },
+            compositionResult: {
+                coverage: suggestion.compositionCoverage,
+                rawScore: suggestion.compositionScore,
+                centeredScore: centeredCompositionScore,
+                stageWeight: suggestion.compositionStageWeight,
+                alliedWinrateDelta: compositionWinrateDelta,
+                enemyResponse: {
+                    pressures: suggestion.enemyResponsePressures,
+                    rawScore: suggestion.enemyResponseScore,
+                    centeredScore: centeredEnemyResponseScore,
+                    stageWeight: suggestion.enemyResponseStageWeight,
+                    winrateDelta: enemyResponseWinrateDelta,
+                },
+                rating: finalAdjustedRating - adjustedRating,
+                winrateDelta: finalCompositionWinrateDelta,
+            },
+            adjustedRating: finalAdjustedRating,
+            adjustedWinrate: finalAdjustedWinrate,
         };
     });
 
-    return suggestions.sort(
-        (a, b) =>
-            b.blindabilityResult.adjustedWinrate -
-            a.blindabilityResult.adjustedWinrate,
-    );
+    return suggestions.sort((a, b) => b.adjustedWinrate - a.adjustedWinrate);
 }

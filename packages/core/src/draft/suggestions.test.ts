@@ -96,6 +96,21 @@ function setMatchup(
     };
 }
 
+function setDamage(
+    dataset: Dataset,
+    championKey: string,
+    role: Role,
+    physical: number,
+    magic: number,
+    trueDamage = 0,
+) {
+    dataset.championData[championKey].statsByRole[role].damageProfile = {
+        physical,
+        magic,
+        true: trueDamage,
+    };
+}
+
 function createBlindabilityDataset() {
     const dataset = createDataset([
         "stable",
@@ -137,6 +152,7 @@ const defaultConfig: SuggestionConfig = {
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     blindabilityWeight: 100,
     enemySafetyPriority: 75,
+    compositionInfluence: 50,
 };
 
 function findTopSuggestion(
@@ -793,6 +809,295 @@ describe("flex-pick suggestion uncertainty", () => {
         );
         expect(uncertain.draftResult.winrate).toBeCloseTo(
             jungle.draftResult.winrate,
+        );
+    });
+});
+
+describe("composition suggestions", () => {
+    function createDamageBalanceDraft() {
+        const dataset = createDataset([
+            "Ahri",
+            "Talon",
+            "Aatrox",
+            "Darius",
+            "Draven",
+            "Garen",
+        ]);
+        const team = new Map([
+            [Role.Top, "Aatrox"],
+            [Role.Jungle, "Darius"],
+            [Role.Bottom, "Draven"],
+            [Role.Support, "Garen"],
+        ]);
+
+        makeViable(dataset, "Ahri", Role.Middle);
+        makeViable(dataset, "Talon", Role.Middle);
+        for (const [role, championKey] of team) {
+            makeViable(dataset, championKey, role);
+            setDamage(dataset, championKey, role, 100, 0);
+        }
+        setDamage(dataset, "Ahri", Role.Middle, 0, 100);
+        setDamage(dataset, "Talon", Role.Middle, 100, 0);
+
+        return { dataset, team };
+    }
+
+    function findMiddleSuggestion(
+        suggestions: ReturnType<typeof getSuggestions>,
+        championKey: string,
+    ) {
+        return suggestions.find(
+            (suggestion) =>
+                suggestion.championKey === championKey &&
+                suggestion.role === Role.Middle,
+        )!;
+    }
+
+    test("raises an AP candidate when completing a physical-damage team", () => {
+        const { dataset, team } = createDamageBalanceDraft();
+        const suggestions = getSuggestions(dataset, dataset, team, new Map(), {
+            ...defaultConfig,
+            blindabilityWeight: 0,
+            compositionInfluence: 100,
+        });
+        const ahri = findMiddleSuggestion(suggestions, "Ahri");
+        const talon = findMiddleSuggestion(suggestions, "Talon");
+
+        expect(ahri.compositionResult.winrateDelta).toBeGreaterThan(0);
+        expect(talon.compositionResult.winrateDelta).toBeLessThan(0);
+        expect(ahri.adjustedWinrate).toBeGreaterThan(talon.adjustedWinrate);
+        expect(suggestions.indexOf(ahri)).toBeLessThan(
+            suggestions.indexOf(talon),
+        );
+    });
+
+    test("can disable composition influence without changing blindability", () => {
+        const { dataset, team } = createDamageBalanceDraft();
+        const suggestions = getSuggestions(dataset, dataset, team, new Map(), {
+            ...defaultConfig,
+            compositionInfluence: 0,
+        });
+
+        for (const suggestion of suggestions) {
+            expect(suggestion.compositionResult.winrateDelta).toBe(0);
+            expect(suggestion.adjustedWinrate).toBeCloseTo(
+                suggestion.blindabilityResult.adjustedWinrate,
+            );
+        }
+    });
+
+    test("does not apply composition influence with no known teammates", () => {
+        const { dataset } = createDamageBalanceDraft();
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            {
+                ...defaultConfig,
+                compositionInfluence: 100,
+            },
+        );
+
+        for (const suggestion of suggestions) {
+            expect(suggestion.compositionResult.stageWeight).toBe(0);
+            expect(suggestion.compositionResult.winrateDelta).toBe(0);
+        }
+    });
+
+    test("conservatively rewards responses to a known enemy composition", () => {
+        const dataset = createDataset([
+            "Jinx",
+            "Jhin",
+            "Ornn",
+            "Amumu",
+            "Ahri",
+            "Yuumi",
+            "DrMundo",
+            "Shaco",
+            "Akali",
+            "Ezreal",
+            "TahmKench",
+        ]);
+        const team = new Map([
+            [Role.Top, "Ornn"],
+            [Role.Jungle, "Amumu"],
+            [Role.Middle, "Ahri"],
+            [Role.Support, "Yuumi"],
+        ]);
+        const enemy = new Map([
+            [Role.Top, "DrMundo"],
+            [Role.Jungle, "Shaco"],
+            [Role.Middle, "Akali"],
+            [Role.Bottom, "Ezreal"],
+            [Role.Support, "TahmKench"],
+        ]);
+        makeViable(dataset, "Jinx", Role.Bottom);
+        makeViable(dataset, "Jhin", Role.Bottom);
+        setDamage(dataset, "Jinx", Role.Bottom, 100, 0);
+        setDamage(dataset, "Jhin", Role.Bottom, 100, 0);
+        const suggestions = getSuggestions(dataset, dataset, team, enemy, {
+            ...defaultConfig,
+            blindabilityWeight: 0,
+            compositionInfluence: 100,
+        });
+        const jinx = suggestions.find(
+            (suggestion) => suggestion.championKey === "Jinx",
+        )!;
+        const jhin = suggestions.find(
+            (suggestion) => suggestion.championKey === "Jhin",
+        )!;
+
+        expect(jinx.compositionResult.enemyResponse.stageWeight).toBe(1);
+        expect(jinx.compositionResult.enemyResponse.pressures.frontline).toBe(
+            1,
+        );
+        expect(
+            jinx.compositionResult.enemyResponse.winrateDelta,
+        ).toBeGreaterThan(jhin.compositionResult.enemyResponse.winrateDelta);
+
+        const withoutEnemies = getSuggestions(
+            dataset,
+            dataset,
+            team,
+            new Map(),
+            {
+                ...defaultConfig,
+                blindabilityWeight: 0,
+                compositionInfluence: 100,
+            },
+        );
+        for (const suggestion of withoutEnemies) {
+            expect(suggestion.compositionResult.enemyResponse.stageWeight).toBe(
+                0,
+            );
+            expect(
+                suggestion.compositionResult.enemyResponse.winrateDelta,
+            ).toBe(0);
+        }
+    });
+
+    test("keeps an unreviewed candidate neutral and finite", () => {
+        const { dataset, team } = createDamageBalanceDraft();
+        dataset.championData.Unknown = createChampion("Unknown");
+        makeViable(dataset, "Unknown", Role.Middle);
+        setDamage(dataset, "Unknown", Role.Middle, 0, 100);
+        const unknown = findMiddleSuggestion(
+            getSuggestions(dataset, dataset, team, new Map(), {
+                ...defaultConfig,
+                compositionInfluence: 100,
+            }),
+            "Unknown",
+        );
+
+        expect(unknown.compositionResult.winrateDelta).toBe(0);
+        expect(Number.isFinite(unknown.adjustedWinrate)).toBe(true);
+    });
+
+    test("weights composition scores across flex-role assignments", () => {
+        const dataset = createDataset(["Aatrox", "Galio"]);
+        makeViable(dataset, "Aatrox", Role.Top);
+        makeViable(dataset, "Galio", Role.Middle);
+        makeViable(dataset, "Galio", Role.Support);
+        setDamage(dataset, "Aatrox", Role.Top, 100, 0);
+        setDamage(dataset, "Galio", Role.Middle, 0, 100);
+        setDamage(dataset, "Galio", Role.Support, 0, 100);
+        const config = { ...defaultConfig, compositionInfluence: 100 };
+        const middle = findTopSuggestion(
+            getSuggestions(
+                dataset,
+                dataset,
+                new Map([[Role.Middle, "Galio"]]),
+                new Map(),
+                config,
+            ),
+            "Aatrox",
+        );
+        const support = findTopSuggestion(
+            getSuggestions(
+                dataset,
+                dataset,
+                new Map([[Role.Support, "Galio"]]),
+                new Map(),
+                config,
+            ),
+            "Aatrox",
+        );
+        const uncertain = findTopSuggestion(
+            getSuggestionsWithRoleUncertainty(
+                dataset,
+                dataset,
+                [
+                    [new Map([[Role.Middle, "Galio"]]), 0.75],
+                    [new Map([[Role.Support, "Galio"]]), 0.25],
+                ],
+                [[new Map(), 1]],
+                config,
+            ),
+            "Aatrox",
+        );
+
+        expect(uncertain.compositionResult.rawScore).toBeCloseTo(
+            middle.compositionResult.rawScore * 0.75 +
+                support.compositionResult.rawScore * 0.25,
+        );
+        expect(uncertain.compositionResult.coverage.frontline).toBeCloseTo(
+            middle.compositionResult.coverage.frontline * 0.75 +
+                support.compositionResult.coverage.frontline * 0.25,
+        );
+    });
+
+    test("weights role centering by recent role pick volume", () => {
+        const { dataset, team } = createDamageBalanceDraft();
+        const { dataset: synergyMatchupDataset } = createDamageBalanceDraft();
+        makeViable(synergyMatchupDataset, "Ahri", Role.Middle, 900);
+        makeViable(synergyMatchupDataset, "Talon", Role.Middle, 100);
+        const suggestions = getSuggestions(
+            dataset,
+            synergyMatchupDataset,
+            team,
+            new Map(),
+            {
+                ...defaultConfig,
+                compositionInfluence: 100,
+            },
+        );
+        const ahri = findMiddleSuggestion(suggestions, "Ahri");
+        const talon = findMiddleSuggestion(suggestions, "Talon");
+        const weightedMean =
+            (ahri.compositionResult.rawScore * 900 +
+                talon.compositionResult.rawScore * 100) /
+            1000;
+
+        expect(ahri.compositionResult.centeredScore).toBeCloseTo(
+            ahri.compositionResult.rawScore - weightedMean,
+        );
+        expect(talon.compositionResult.centeredScore).toBeCloseTo(
+            talon.compositionResult.rawScore - weightedMean,
+        );
+    });
+
+    test("excludes banned candidates from role centering", () => {
+        const { dataset, team } = createDamageBalanceDraft();
+        dataset.championData.Anivia = createChampion("Anivia");
+        makeViable(dataset, "Anivia", Role.Middle);
+        setDamage(dataset, "Anivia", Role.Middle, 0, 100);
+        const suggestions = getSuggestions(
+            dataset,
+            dataset,
+            team,
+            new Map(),
+            { ...defaultConfig, compositionInfluence: 100 },
+            ["Anivia"],
+        );
+        const ahri = findMiddleSuggestion(suggestions, "Ahri");
+        const talon = findMiddleSuggestion(suggestions, "Talon");
+
+        expect(ahri.compositionResult.centeredScore).toBeCloseTo(
+            ahri.compositionResult.rawScore -
+                (ahri.compositionResult.rawScore +
+                    talon.compositionResult.rawScore) /
+                    2,
         );
     });
 });

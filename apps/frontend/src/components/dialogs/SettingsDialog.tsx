@@ -36,6 +36,7 @@ export default function SettingsDialog() {
         duoRoleWeights: { ...config.duoRoleWeights },
         blindabilityWeight: config.blindabilityWeight,
         enemySafetyPriority: config.enemySafetyPriority,
+        compositionInfluence: config.compositionInfluence,
     });
 
     function updateRoleWeight(type: RoleWeightType, role: Role, value: number) {
@@ -325,6 +326,49 @@ export default function SettingsDialog() {
                             />
                         </label>
                     </div>
+                </fieldset>
+                <fieldset class="mt-5">
+                    <legend class="text-lg uppercase">Composition</legend>
+                    <p class="text-sm opacity-60">
+                        Composition influence rewards damage balance, frontline,
+                        a fight plan through engage or peel, hard crowd control,
+                        waveclear, and sustained damage. The allied-fit
+                        adjustment starts at zero with no known teammates, stays
+                        conservative early, and reaches full strength when the
+                        other four allied picks are known. A smaller adjustment
+                        responds independently to known enemy frontline, engage,
+                        peel, and waveclear, scaling up as their draft becomes
+                        visible.
+                    </p>
+                    <label class="mt-3 grid gap-1">
+                        <span class="flex justify-between gap-2 text-sm uppercase">
+                            <span>Composition influence</span>
+                            <span class="tabular-nums opacity-70">
+                                {draftWeights.compositionInfluence}%
+                            </span>
+                        </span>
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            class="w-full accent-secondary"
+                            value={draftWeights.compositionInfluence}
+                            aria-label="Composition influence"
+                            onInput={(event) =>
+                                setDraftWeights(
+                                    "compositionInfluence",
+                                    event.currentTarget.valueAsNumber,
+                                )
+                            }
+                            onChange={(event) =>
+                                setConfig({
+                                    compositionInfluence:
+                                        event.currentTarget.valueAsNumber,
+                                })
+                            }
+                        />
+                    </label>
                 </fieldset>
             </div>
             <div>
