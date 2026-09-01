@@ -39,7 +39,7 @@
                 "depends": []
             }
         },
-        "createUpdaterArtifacts": "v1Compatible"
+        "createUpdaterArtifacts": false
     },
     "productName": "DraftGap",
     "mainBinaryName": "DraftGap",
