@@ -300,14 +300,17 @@ export default function SettingsDialog() {
                         Teammates are weighted by pick rate. Counter likelihood
                         blends pick rate with equal champion coverage, so niche
                         counterpicks still matter after you reveal a pick.
-                        Counter penalties increase smoothly with estimated
-                        downside, so severe counters matter progressively more
-                        without a hard scoring cutoff. The direct-role opponent
-                        is primary; all four non-lane roles together receive
-                        half as much weight. Results are compared with viable
-                        choices in the same role, and sparse interactions are
-                        pulled toward neutral by the selected risk level. Enemy
-                        safety receives more weight by default for solo queue.
+                        Counter penalties account for both estimated downside
+                        and uncertainty. Unknown interactions retain ordinary
+                        risk, learned from viable choices in the relevant roles,
+                        and give no safety or teammate-fit bonus. Evidence of
+                        safe matchups or reliable teammate fit can earn a bonus;
+                        observed counters and awkward teammates can lower the
+                        score. The selected risk level controls how strongly
+                        observations update these estimates. The direct-role
+                        opponent is primary; all four non-lane roles together
+                        receive half as much weight. Enemy safety receives more
+                        weight by default for solo queue.
                     </p>
                     <div class="mt-3">
                         <label class="grid gap-1">

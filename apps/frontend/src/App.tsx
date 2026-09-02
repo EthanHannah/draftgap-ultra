@@ -5,6 +5,8 @@ import {
     createSignal,
     For,
     Match,
+    lazy,
+    Suspense,
     Show,
     Switch,
 } from "solid-js";
@@ -14,14 +16,12 @@ import { Search } from "./components/draft/Search";
 import { TeamSelector } from "./components/draft/TeamSelector";
 import { TeamSidebar } from "./components/draft/TeamSidebar";
 import { cog_6Tooth } from "solid-heroicons/solid";
-import AnalysisView from "./components/views/analysis/AnalysisView";
 import { LolClientStatusBadge } from "./components/draft/LolClientStatusBadge";
 import { useLolClient } from "./contexts/LolClientContext";
 import { Badge } from "./components/common/Badge";
 import { FilterMenu } from "./components/draft/FilterMenu";
 import { formatDistance } from "date-fns";
 import { ViewTabs } from "./components/common/ViewTabs";
-import { BuildsView } from "./components/views/builds/BuildsView";
 import { useDraftView } from "./contexts/DraftViewContext";
 import { useUser } from "./contexts/UserContext";
 import { useDataset } from "./contexts/DatasetContext";
@@ -41,6 +41,15 @@ import { cn } from "./utils/style";
 import { formatPatch } from "./utils/strings";
 import { LanguageDropdownMenu } from "./components/LanguageMenu";
 
+const AnalysisView = lazy(
+    () => import("./components/views/analysis/AnalysisView"),
+);
+const BuildsView = lazy(() =>
+    import("./components/views/builds/BuildsView").then((module) => ({
+        default: module.BuildsView,
+    })),
+);
+
 const App: Component = () => {
     const { config } = useUser();
     const { currentDraftView, setCurrentDraftView } = useDraftView();
@@ -49,7 +58,7 @@ const App: Component = () => {
         useDraftAnalysis();
     const { startLolClientIntegration, stopLolClientIntegration } =
         useLolClient();
-    const { isDesktop } = useMedia();
+    const { isDesktop, isMobileLayout } = useMedia();
 
     createEffect(() => {
         if (config.disableLeagueClientIntegration) {
@@ -141,45 +150,58 @@ const App: Component = () => {
                                 }
                                 class="xl:px-8"
                             />
-                            <Switch>
-                                <Match
-                                    when={currentDraftView().type == "draft"}
-                                >
-                                    <div class="py-5 px-4 xl:px-8 h-full overflow-y-hidden flex flex-col">
-                                        <div class="mb-4 flex gap-4">
-                                            <Search />
-                                            <TeamSelector />
-                                            <RoleFilter class="hidden lg:inline-flex" />
-                                            <div class="hidden lg:inline-flex gap-3">
-                                                <FilterMenu />
-                                                <Show when={isDesktop}>
-                                                    <AnalyzeHoverToggle />
-                                                </Show>
+                            <Suspense
+                                fallback={
+                                    <div class="flex flex-1 items-center justify-center">
+                                        <LoadingIcon class="animate-spin h-10 w-10" />
+                                    </div>
+                                }
+                            >
+                                <Switch>
+                                    <Match
+                                        when={
+                                            currentDraftView().type == "draft"
+                                        }
+                                    >
+                                        <div class="py-5 px-4 xl:px-8 h-full overflow-y-hidden flex flex-col">
+                                            <div class="mb-4 flex gap-4">
+                                                <Search />
+                                                <TeamSelector />
+                                                <RoleFilter class="hidden lg:inline-flex" />
+                                                <div class="hidden lg:inline-flex gap-3">
+                                                    <FilterMenu />
+                                                    <Show when={isDesktop}>
+                                                        <AnalyzeHoverToggle />
+                                                    </Show>
+                                                </div>
                                             </div>
+                                            <div class="flex justify-end mb-4 gap-4 lg:hidden">
+                                                <RoleFilter class="w-full" />
+                                                <FilterMenu />
+                                                <AnalyzeHoverToggle />
+                                            </div>
+                                            <DraftTable />
                                         </div>
-                                        <div class="flex justify-end mb-4 gap-4 lg:hidden">
-                                            <RoleFilter class="w-full" />
-                                            <FilterMenu />
-                                            <AnalyzeHoverToggle />
+                                    </Match>
+                                    <Match
+                                        when={
+                                            currentDraftView().type ===
+                                            "analysis"
+                                        }
+                                    >
+                                        <div class="py-5 px-4 xl:px-8 h-full overflow-y-auto">
+                                            <AnalysisView />
                                         </div>
-                                        <DraftTable />
-                                    </div>
-                                </Match>
-                                <Match
-                                    when={
-                                        currentDraftView().type === "analysis"
-                                    }
-                                >
-                                    <div class="py-5 px-4 xl:px-8 h-full overflow-y-auto">
-                                        <AnalysisView />
-                                    </div>
-                                </Match>
-                                <Match
-                                    when={currentDraftView().type === "builds"}
-                                >
-                                    <BuildsView />
-                                </Match>
-                            </Switch>
+                                    </Match>
+                                    <Match
+                                        when={
+                                            currentDraftView().type === "builds"
+                                        }
+                                    >
+                                        <BuildsView />
+                                    </Match>
+                                </Switch>
+                            </Suspense>
                         </div>
                     </Match>
                 </Switch>
@@ -249,38 +271,41 @@ const App: Component = () => {
                     </div>
                 </div>
             </header>
-            {/* Desktop main */}
-            <main
-                class="h-full lg:grid overflow-hidden hidden"
-                style={{
-                    "grid-template-columns": "1fr 4fr 1fr",
-                    "grid-template-rows": "100%",
-                }}
+            <Show
+                when={!isMobileLayout()}
+                fallback={
+                    <main class="h-full overflow-hidden lg:hidden">
+                        <Switch>
+                            <Match when={mobileTab() === "ally"}>
+                                <TeamSidebar team="ally" />
+                            </Match>
+                            <Match when={mobileTab() === "opponent"}>
+                                <TeamSidebar team="opponent" />
+                            </Match>
+                            <Match when={true}>
+                                <MainView />
+                            </Match>
+                        </Switch>
+                    </main>
+                }
             >
-                <TeamSidebar team="ally" />
+                <main
+                    class="h-full grid overflow-hidden"
+                    style={{
+                        "grid-template-columns": "1fr 4fr 1fr",
+                        "grid-template-rows": "100%",
+                    }}
+                >
+                    <TeamSidebar team="ally" />
 
-                <MainView />
+                    <MainView />
 
-                <TeamSidebar team="opponent" />
-            </main>
-
-            {/* Mobile main */}
-            <main class="h-full overflow-hidden lg:hidden">
-                <Switch>
-                    <Match when={mobileTab() === "ally"}>
-                        <TeamSidebar team="ally" />
-                    </Match>
-                    <Match when={mobileTab() === "opponent"}>
-                        <TeamSidebar team="opponent" />
-                    </Match>
-                    <Match when={true}>
-                        <MainView />
-                    </Match>
-                </Switch>
-            </main>
+                    <TeamSidebar team="opponent" />
+                </main>
+            </Show>
 
             {/* Mobile footers */}
-            <Show when={mobileTab() !== undefined}>
+            <Show when={isMobileLayout() && mobileTab() !== undefined}>
                 <footer class="bg-primary px-4 py-2 border-t-2 border-neutral-700 flex justify-evenly lg:hidden gap-4">
                     <For each={["ally", "draft", "opponent"] as const}>
                         {(view) => (

@@ -1,42 +1,40 @@
 import { JSXElement, createContext, createMemo, useContext } from "solid-js";
-import { getSuggestionsWithRoleUncertainty } from "@draftgap/core/src/draft/suggestions";
+import { createSuggestionCache } from "@draftgap/core/src/draft/suggestion-cache";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
 import { useDraft } from "./DraftContext";
+import { useDraftView } from "./DraftViewContext";
+import { useMedia } from "../hooks/useMedia";
 
 export function createDraftSuggestionsContext() {
     const { isLoaded, dataset, dataset30Days } = useDataset();
     const { suggestionConfig, allyTeamComps, opponentTeamComps } =
         useDraftAnalysis();
-    const { bans } = useDraft();
+    const { bans, selection } = useDraft();
+    const { currentDraftView } = useDraftView();
+    const { isMobileLayout } = useMedia();
+    const calculate = createSuggestionCache();
 
-    const allySuggestions = createMemo(() => {
-        if (!isLoaded()) return [];
-
-        return getSuggestionsWithRoleUncertainty(
+    const suggestions = createMemo(() => {
+        const view = currentDraftView();
+        if (
+            !isLoaded() ||
+            view.type !== "draft" ||
+            (isMobileLayout() && view.subType !== "draft")
+        )
+            return [];
+        const isOpponent = selection.team === "opponent";
+        return calculate(
             dataset()!,
             dataset30Days()!,
-            allyTeamComps(),
-            opponentTeamComps(),
+            isOpponent ? opponentTeamComps() : allyTeamComps(),
+            isOpponent ? allyTeamComps() : opponentTeamComps(),
             suggestionConfig(),
             bans,
         );
     });
 
-    const opponentSuggestions = createMemo(() => {
-        if (!isLoaded()) return [];
-
-        return getSuggestionsWithRoleUncertainty(
-            dataset()!,
-            dataset30Days()!,
-            opponentTeamComps(),
-            allyTeamComps(),
-            suggestionConfig(),
-            bans,
-        );
-    });
-
-    return { allySuggestions, opponentSuggestions };
+    return { suggestions };
 }
 
 export const DraftSuggestionsContext =

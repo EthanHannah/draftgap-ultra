@@ -1,6 +1,8 @@
 import { RiskLevel } from "../../risk/risk-level";
 import { RoleWeights } from "../Role";
 
+export const DEFAULT_RECOMMENDATION_MIN_GAMES = 5000;
+
 export type StatsSite = "op.gg" | "u.gg" | "lolalytics";
 
 export const DraftTablePlacement = {

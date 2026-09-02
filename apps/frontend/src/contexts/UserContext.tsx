@@ -7,7 +7,10 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { DEFAULT_ROLE_WEIGHTS, Role } from "@draftgap/core/src/models/Role";
-import { DraftGapConfig } from "@draftgap/core/src/models/user/Config";
+import {
+    DraftGapConfig,
+    DEFAULT_RECOMMENDATION_MIN_GAMES,
+} from "@draftgap/core/src/models/user/Config";
 
 type FavouritePick = `${string}:${Role}`;
 
@@ -15,7 +18,7 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     // DRAFT CONFIG
     championWinrateInfluence: 100,
     riskLevel: "low",
-    minGames: 1000,
+    minGames: DEFAULT_RECOMMENDATION_MIN_GAMES,
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     analyzeHovers: false,
@@ -49,7 +52,10 @@ function createConfig() {
         ignoreChampionWinrates?: boolean;
         synergyBlindabilityWeight?: number;
         matchupBlindabilityWeight?: number;
+        interactionMinGames?: number;
     };
+    // Interaction eligibility is fixed in the scoring model, not a preference.
+    delete storedConfig.interactionMinGames;
     const {
         ignoreChampionWinrates,
         synergyBlindabilityWeight,

@@ -70,14 +70,9 @@ export default function DraftTable() {
         favouriteFilter,
         setFavouriteFilter,
     } = useDraftFilters();
-    const { allySuggestions, opponentSuggestions } = useDraftSuggestions();
+    const { suggestions } = useDraftSuggestions();
     const { allyDraftAnalysis, opponentDraftAnalysis } = useDraftAnalysis();
     const { isFavourite, setFavourite, config } = useUser();
-
-    const suggestions = () =>
-        selection.team === "opponent"
-            ? opponentSuggestions()
-            : allySuggestions();
 
     const draftAnalysisBeforePick = () =>
         selection.team === "opponent"

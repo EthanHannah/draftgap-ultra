@@ -10,9 +10,15 @@ import {
     analyzeMatchup,
     aggregateDraftResults,
     normalizeTeamComps,
+    getDuoInteractionWeight,
     WeightedTeamComp,
 } from "./analysis";
 import { getStats } from "./utils";
+import {
+    getAllyBlindability,
+    getBlindInteractionPrior,
+    getCounterBlindability,
+} from "./blindability";
 import {
     COMPOSITION_DIMENSIONS,
     CompositionCoverage,
@@ -26,6 +32,9 @@ import {
     getTeamCompositionScore,
 } from "../composition/composition";
 
+// Fixed weekly-equivalent role volume for potential interactions and baselines.
+export const INTERACTION_MIN_GAMES = 1000;
+
 export type SuggestionConfig = AnalyzeDraftConfig & {
     contextInfluence: number;
     blindabilityWeight: number;
@@ -37,9 +46,12 @@ export type BlindabilityResult = {
     synergyGap: number;
     matchupGap: number;
     counterExposure: number;
+    counterExposureBaseline: number;
     hardCounterRate: number;
+    // Relative to the shared role-pair priors; no further candidate centering.
     synergyScore: number;
     matchupScore: number;
+    // Sample-size support diagnostics, separate from the uncertainty model.
     synergyConfidence: number;
     matchupConfidence: number;
     rating: number;
@@ -100,6 +112,7 @@ type RawSuggestion = Omit<
     synergyGap: number;
     matchupGap: number;
     counterExposure: number;
+    counterExposureBaseline: number;
     hardCounterRate: number;
     synergyScore: number;
     matchupScore: number;
@@ -116,13 +129,6 @@ type RawSuggestion = Omit<
     hasEnemyResponseProfiles: boolean;
 };
 
-const BLINDABILITY_LOWER_TAIL_FRACTION = 0.2;
-// Blend a downside case into expected ally synergy so a champion with several
-// awkward teammates is not treated as universally easy to fit into a draft.
-const BLINDABILITY_LOWER_TAIL_WEIGHT = 0.5;
-const HARD_COUNTER_WINRATE = 0.48;
-const MAX_COUNTER_EXPOSURE = 4;
-const COUNTER_EXPOSURE_RATING_SCALE = 50;
 // Opponents can react to a revealed first pick, so retain equal coverage for
 // niche counterpicks instead of relying entirely on unconditional pick rate.
 const COUNTER_META_PICK_RATE_FRACTION = 0.5;
@@ -130,11 +136,6 @@ const COUNTER_META_PICK_RATE_FRACTION = 0.5;
 // all four non-lane roles together contribute half as much as the lane/jungle
 // counterpart. This catches broader kit counters without diluting lane safety.
 const CROSS_ROLE_COUNTER_WEIGHT = 0.125;
-
-type WeightedInteraction = {
-    rating: number;
-    weight: number;
-};
 
 type ContextInteraction = {
     rating: number;
@@ -179,105 +180,6 @@ function isEligibleInRole(
     minGames: number,
 ) {
     return (getStats(dataset, championKey, role).games / 30) * 7 >= minGames;
-}
-
-function getAllyFitInteractionScore(interactions: WeightedInteraction[]) {
-    const weightedInteractions = interactions.filter(
-        ({ rating, weight }) =>
-            Number.isFinite(rating) && Number.isFinite(weight) && weight > 0,
-    );
-    if (weightedInteractions.length === 0) return { gap: 0, score: 0 };
-
-    const totalWeight = weightedInteractions.reduce(
-        (total, interaction) => total + interaction.weight,
-        0,
-    );
-    const mean =
-        weightedInteractions.reduce(
-            (total, interaction) =>
-                total + interaction.rating * interaction.weight,
-            0,
-        ) / totalWeight;
-
-    // Use the average result from the most unfavorable 20% of likely picks as
-    // the downside case. Unlike the full range, this cannot punish a champion
-    // for gaining an unusually strong interaction and is less sensitive to a
-    // single rare outlier.
-    const lowerTailWeight = totalWeight * BLINDABILITY_LOWER_TAIL_FRACTION;
-    let remainingTailWeight = lowerTailWeight;
-    let lowerTailRating = 0;
-    const sortedInteractions = [...weightedInteractions].sort(
-        (a, b) => a.rating - b.rating,
-    );
-
-    for (const interaction of sortedInteractions) {
-        if (remainingTailWeight <= 0) break;
-
-        const includedWeight = Math.min(
-            interaction.weight,
-            remainingTailWeight,
-        );
-        lowerTailRating += interaction.rating * includedWeight;
-        remainingTailWeight -= includedWeight;
-    }
-
-    const lowerTailMean = lowerTailRating / lowerTailWeight;
-    const gap = Math.max(0, mean - lowerTailMean);
-
-    // Treat blindability as an even blend of the expected result and the
-    // downside case from the worst likely quintile.
-    return {
-        gap,
-        score: mean - gap * BLINDABILITY_LOWER_TAIL_WEIGHT,
-    };
-}
-
-function getCounterExposureScore(interactions: WeightedInteraction[]) {
-    const weightedInteractions = interactions.filter(
-        ({ rating, weight }) =>
-            Number.isFinite(rating) && Number.isFinite(weight) && weight > 0,
-    );
-    if (weightedInteractions.length === 0) {
-        return { counterExposure: 0, hardCounterRate: 0, score: 0 };
-    }
-
-    const totalWeight = weightedInteractions.reduce(
-        (total, interaction) => total + interaction.weight,
-        0,
-    );
-    const exposureWeight = weightedInteractions.reduce((total, interaction) => {
-        const interactionWinrate = ratingToWinrate(interaction.rating);
-        const normalizedDownside = Math.max(
-            0,
-            (0.5 - interactionWinrate) / (0.5 - HARD_COUNTER_WINRATE),
-        );
-        const exposure = Math.min(
-            MAX_COUNTER_EXPOSURE,
-            normalizedDownside ** 2,
-        );
-
-        return total + exposure * interaction.weight;
-    }, 0);
-    const hardCounterWeight = weightedInteractions.reduce(
-        (total, interaction) =>
-            total +
-            (ratingToWinrate(interaction.rating) <= HARD_COUNTER_WINRATE
-                ? interaction.weight
-                : 0),
-        0,
-    );
-    const counterExposure = exposureWeight / totalWeight;
-    const hardCounterRate = hardCounterWeight / totalWeight;
-
-    // The convex curve keeps estimates near neutral small and progressively
-    // increases the penalty for severe counters without a scoring cliff. The
-    // hard-counter threshold is retained only as a diagnostic.
-
-    return {
-        counterExposure,
-        hardCounterRate,
-        score: -counterExposure * COUNTER_EXPOSURE_RATING_SCALE,
-    };
 }
 
 function getWeight(value: number) {
@@ -413,7 +315,7 @@ export function getSuggestionsWithRoleUncertainty(
                         synergyMatchupDataset,
                         championKey,
                         role,
-                        config.minGames,
+                        INTERACTION_MIN_GAMES,
                     ),
                 )
                 .map((championKey) => ({
@@ -479,6 +381,57 @@ export function getSuggestionsWithRoleUncertainty(
         return result;
     };
 
+    const priorCache = new Map<
+        string,
+        ReturnType<typeof getBlindInteractionPrior>
+    >();
+    const getPrior = (
+        family: "ally" | "enemy",
+        role: Role,
+        otherRole: Role,
+    ) => {
+        const key = `${family}:${role}:${otherRole}`;
+        const cached = priorCache.get(key);
+        if (cached) return cached;
+        function* interactions() {
+            for (const candidate of eligibleChampionsByRole[role]) {
+                if (unavailableChampions.has(candidate.championKey)) continue;
+                for (const other of eligibleChampionsByRole[otherRole]) {
+                    if (
+                        candidate.championKey === other.championKey ||
+                        unavailableChampions.has(other.championKey)
+                    )
+                        continue;
+                    yield family === "ally"
+                        ? getDuoResult(
+                              candidate.championKey,
+                              role,
+                              other.championKey,
+                              otherRole,
+                          )
+                        : getMatchupResult(
+                              candidate.championKey,
+                              role,
+                              other.championKey,
+                              otherRole,
+                          );
+                }
+            }
+        }
+        const prior = getBlindInteractionPrior(
+            interactions(),
+            family === "ally"
+                ? getDuoInteractionWeight(
+                      config.duoRoleWeights,
+                      role,
+                      otherRole,
+                  )
+                : 1,
+        );
+        priorCache.set(key, prior);
+        return prior;
+    };
+
     const rawSuggestions: RawSuggestion[] = [];
 
     const enemyOpenRoleProbability = Object.fromEntries(
@@ -509,7 +462,7 @@ export function getSuggestionsWithRoleUncertainty(
                     synergyMatchupDataset,
                     championKey,
                     role,
-                    config.minGames,
+                    Math.min(config.minGames, INTERACTION_MIN_GAMES),
                 )
             )
                 continue;
@@ -564,11 +517,14 @@ export function getSuggestionsWithRoleUncertainty(
                 const availableResults = results.filter(
                     ({ available }) => available,
                 );
-                const allyFit = getAllyFitInteractionScore(
+                const allyFit = getAllyBlindability(
                     availableResults.map(({ result, metaWeight }) => ({
-                        rating: result.rating,
+                        games: result.games,
+                        wins: result.wins,
                         weight: metaWeight,
                     })),
+                    getPrior("ally", role, teammateRole),
+                    priorGames,
                 );
                 synergyGap += allyFit.gap * roleProbability;
                 synergyScore += allyFit.score * roleProbability;
@@ -583,6 +539,7 @@ export function getSuggestionsWithRoleUncertainty(
             let matchupGap = 0;
             let matchupScore = 0;
             let counterExposure = 0;
+            let counterExposureBaseline = 0;
             let hardCounterRate = 0;
             let counterExposureWeight = 0;
             let enemyObservedContextRating = 0;
@@ -643,20 +600,30 @@ export function getSuggestionsWithRoleUncertainty(
                     result: resultByChampion.get(opponent.championKey)!,
                     weight: opponent.counterPickWeight,
                 }));
-                const weightedRatings = availableResults.map(
+                const weightedInteractions = availableResults.map(
                     ({ result, weight }) => ({
-                        rating: result.rating,
+                        games: result.games,
+                        wins: result.wins,
                         weight,
                     }),
                 );
-                const matchupDistribution =
-                    getAllyFitInteractionScore(weightedRatings);
-                const counterExposureResult =
-                    getCounterExposureScore(weightedRatings);
+                const prior = getPrior("enemy", role, opponentRole);
+                const matchupDistribution = getAllyBlindability(
+                    weightedInteractions,
+                    prior,
+                    priorGames,
+                );
+                const counterExposureResult = getCounterBlindability(
+                    weightedInteractions,
+                    prior,
+                    priorGames,
+                );
                 matchupGap += matchupDistribution.gap * roleProbability;
                 matchupScore += counterExposureResult.score * roleProbability;
                 counterExposure +=
                     counterExposureResult.counterExposure * roleProbability;
+                counterExposureBaseline +=
+                    counterExposureResult.baselineExposure * roleProbability;
                 hardCounterRate +=
                     counterExposureResult.hardCounterRate * roleProbability;
                 counterExposureWeight += roleProbability;
@@ -669,6 +636,7 @@ export function getSuggestionsWithRoleUncertainty(
             }
             if (counterExposureWeight > 0) {
                 counterExposure /= counterExposureWeight;
+                counterExposureBaseline /= counterExposureWeight;
                 hardCounterRate /= counterExposureWeight;
             }
 
@@ -773,6 +741,7 @@ export function getSuggestionsWithRoleUncertainty(
                 synergyGap,
                 matchupGap,
                 counterExposure,
+                counterExposureBaseline,
                 hardCounterRate,
                 synergyScore,
                 matchupScore,
@@ -794,10 +763,6 @@ export function getSuggestionsWithRoleUncertainty(
     const scoreTotalsByRole = new Map<
         Role,
         {
-            synergyConfidence: number;
-            matchupConfidence: number;
-            weightedSynergyScore: number;
-            weightedMatchupScore: number;
             weightedCompositionScore: number;
             compositionWeight: number;
             weightedEnemyResponseScore: number;
@@ -807,23 +772,24 @@ export function getSuggestionsWithRoleUncertainty(
 
     for (const suggestion of rawSuggestions) {
         if (bannedChampions.has(suggestion.championKey)) continue;
+        // Use the independent interaction pool for composition baselines too.
+        // Hiding recommendations must not change scores for the visible picks.
+        if (
+            !isEligibleInRole(
+                synergyMatchupDataset,
+                suggestion.championKey,
+                suggestion.role,
+                INTERACTION_MIN_GAMES,
+            )
+        )
+            continue;
 
         const totals = scoreTotalsByRole.get(suggestion.role) ?? {
-            synergyConfidence: 0,
-            matchupConfidence: 0,
-            weightedSynergyScore: 0,
-            weightedMatchupScore: 0,
             weightedCompositionScore: 0,
             compositionWeight: 0,
             weightedEnemyResponseScore: 0,
             enemyResponseWeight: 0,
         };
-        totals.synergyConfidence += suggestion.synergyConfidence;
-        totals.matchupConfidence += suggestion.matchupConfidence;
-        totals.weightedSynergyScore +=
-            suggestion.synergyScore * suggestion.synergyConfidence;
-        totals.weightedMatchupScore +=
-            suggestion.matchupScore * suggestion.matchupConfidence;
         if (
             suggestion.hasCompositionProfiles &&
             Number.isFinite(suggestion.compositionPickWeight) &&
@@ -863,27 +829,12 @@ export function getSuggestionsWithRoleUncertainty(
         const contextAdjustedRating =
             winrateToRating(suggestion.draftResult.winrate) + contextRating;
         const contextAdjustedWinrate = ratingToWinrate(contextAdjustedRating);
-        // Each interaction rating has already been shrunk toward its expected
-        // result by analyzeDuo/analyzeMatchup. Applying aggregate confidence
-        // here would discount the same sample-size uncertainty a second time.
-        // Center against other viable suggestions in the same role so the
-        // modifier measures relative blindability instead of making every pick
-        // negative simply because every champion has an unfavorable tail.
+        // Blind scores already compare uncertainty-aware interactions with
+        // their shared role-pair priors. Centering again on observed candidates
+        // would turn missing evidence back into a relative safety bonus.
         const roleTotals = scoreTotalsByRole.get(suggestion.role);
-        const meanSynergyScore = roleTotals?.synergyConfidence
-            ? roleTotals.weightedSynergyScore / roleTotals.synergyConfidence
-            : suggestion.synergyScore;
-        const meanMatchupScore = roleTotals?.matchupConfidence
-            ? roleTotals.weightedMatchupScore / roleTotals.matchupConfidence
-            : suggestion.matchupScore;
-        const synergyRating =
-            suggestion.synergyConfidence === 0
-                ? 0
-                : suggestion.synergyScore - meanSynergyScore;
-        const matchupRating =
-            suggestion.matchupConfidence === 0
-                ? 0
-                : suggestion.matchupScore - meanMatchupScore;
+        const synergyRating = suggestion.synergyScore;
+        const matchupRating = suggestion.matchupScore;
         const enemySafetyShare = getWeight(config.enemySafetyPriority);
         const allyFitShare = 1 - enemySafetyShare;
         // Multiplying both shares by two preserves the previous total scale at
@@ -948,6 +899,7 @@ export function getSuggestionsWithRoleUncertainty(
                 synergyGap: suggestion.synergyGap,
                 matchupGap: suggestion.matchupGap,
                 counterExposure: suggestion.counterExposure,
+                counterExposureBaseline: suggestion.counterExposureBaseline,
                 hardCounterRate: suggestion.hardCounterRate,
                 synergyScore: suggestion.synergyScore,
                 matchupScore: suggestion.matchupScore,
@@ -978,5 +930,14 @@ export function getSuggestionsWithRoleUncertainty(
         };
     });
 
-    return suggestions.sort((a, b) => b.adjustedWinrate - a.adjustedWinrate);
+    return suggestions
+        .filter((suggestion) =>
+            isEligibleInRole(
+                synergyMatchupDataset,
+                suggestion.championKey,
+                suggestion.role,
+                config.minGames,
+            ),
+        )
+        .sort((a, b) => b.adjustedWinrate - a.adjustedWinrate);
 }

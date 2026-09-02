@@ -10,10 +10,10 @@ export function FilterMenu() {
     const { config, setConfig } = useUser();
 
     const minGameCountOptions: ButtonGroupOption<number>[] = [
-        500, 1000, 2500, 5000,
+        500, 1000, 2500, 5000, 10000, 25000,
     ].map((n) => ({
         value: n,
-        label: n.toString(),
+        label: n >= 1000 ? `${n / 1000}k` : n.toString(),
     }));
 
     return (
@@ -28,10 +28,13 @@ export function FilterMenu() {
                     Filters
                 </span>
                 <span class="text-lg uppercase block">
-                    Minimum game count (7d)
+                    Minimum game count (7D)
                 </span>
                 <ButtonGroup
                     options={minGameCountOptions}
+                    size="sm"
+                    class="flex w-full [&>button]:flex-1 [&>button]:px-2"
+                    aria-label="Minimum game count (7D)"
                     selected={config.minGames}
                     onChange={(value: number) =>
                         setConfig({
