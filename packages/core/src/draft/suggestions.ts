@@ -14,6 +14,7 @@ import {
     WeightedTeamComp,
 } from "./analysis";
 import { getStats } from "./utils";
+import { getContextRatings } from "./context";
 import {
     getAllyBlindability,
     getBlindInteractionPrior,
@@ -77,6 +78,7 @@ export type CompositionResult = {
 };
 
 export type ContextResult = {
+    // Contributions after coverage weighting, including open-role probability.
     allyObservedRating: number;
     allyMetaRating: number;
     enemyObservedRating: number;
@@ -136,13 +138,6 @@ const COUNTER_META_PICK_RATE_FRACTION = 0.5;
 // all four non-lane roles together contribute half as much as the lane/jungle
 // counterpart. This catches broader kit counters without diluting lane safety.
 const CROSS_ROLE_COUNTER_WEIGHT = 0.125;
-
-type ContextInteraction = {
-    rating: number;
-    games: number;
-    metaWeight: number;
-    available: boolean;
-};
 
 type AvailableChampion = {
     championKey: string;
@@ -217,46 +212,6 @@ function getInteractionConfidence(
     );
 
     return weightedGames / (weightedGames + priorGames * totalWeight);
-}
-
-function getWeightedRating(
-    interactions: ContextInteraction[],
-    getWeight: (interaction: ContextInteraction) => number,
-) {
-    const validInteractions = interactions.filter((interaction) => {
-        const weight = getWeight(interaction);
-
-        return (
-            Number.isFinite(interaction.rating) &&
-            Number.isFinite(weight) &&
-            weight > 0
-        );
-    });
-    const totalWeight = validInteractions.reduce(
-        (total, interaction) => total + getWeight(interaction),
-        0,
-    );
-    if (totalWeight === 0) return 0;
-
-    return (
-        validInteractions.reduce(
-            (total, interaction) =>
-                total + interaction.rating * getWeight(interaction),
-            0,
-        ) / totalWeight
-    );
-}
-
-function getContextRatings(interactions: ContextInteraction[]) {
-    return {
-        // Pair-game weighting reconstructs the kind of context in which the
-        // champion was actually selected. Meta weighting asks how the same
-        // interactions would look against the normally available champion pool.
-        observed: getWeightedRating(interactions, ({ games }) => games),
-        meta: getWeightedRating(interactions, ({ metaWeight, available }) =>
-            available ? metaWeight : 0,
-        ),
-    };
 }
 
 export function getSuggestions(
@@ -509,9 +464,11 @@ export function getSuggestionsWithRoleUncertainty(
                         metaWeight,
                         available,
                     })),
+                    priorGames,
+                    roleProbability,
                 );
                 allyObservedContextRating += contextRatings.observed;
-                allyMetaContextRating += contextRatings.meta * roleProbability;
+                allyMetaContextRating += contextRatings.meta;
                 if (roleProbability === 0) continue;
 
                 const availableResults = results.filter(
@@ -579,13 +536,13 @@ export function getSuggestionsWithRoleUncertainty(
                         metaWeight,
                         available,
                     })),
+                    priorGames,
+                    enemyOpenRoleProbability[opponentRole],
                 );
                 enemyObservedContextRating +=
                     contextRatings.observed * matchupRoleWeight;
                 enemyMetaContextRating +=
-                    contextRatings.meta *
-                    enemyOpenRoleProbability[opponentRole] *
-                    matchupRoleWeight;
+                    contextRatings.meta * matchupRoleWeight;
                 if (roleProbability === 0) continue;
 
                 const resultByChampion = new Map(
@@ -817,7 +774,8 @@ export function getSuggestionsWithRoleUncertainty(
         // selected this champion. Re-center every interaction family from that
         // observed mix to the ordinary meta mix for slots that remain open.
         // Once a slot is revealed, analyzeDraft supplies its direct interaction
-        // and only the observed-context centering remains.
+        // and only the observed-context centering remains. Each role's context
+        // contrast is already reduced according to its data coverage.
         const contextWeight = getContextWeight(config.contextInfluence);
         const rawContextRating =
             suggestion.allyMetaContextRating -

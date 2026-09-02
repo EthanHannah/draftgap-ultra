@@ -4,7 +4,7 @@ import { ChampionData } from "../models/dataset/ChampionData";
 import { Dataset } from "../models/dataset/Dataset";
 import { DEFAULT_ROLE_WEIGHTS, Role, ROLES } from "../models/Role";
 import { createSuggestionCache } from "./suggestion-cache";
-import { WeightedTeamComp } from "./analysis";
+import { WeightedTeamComp, analyzeDuo, analyzeMatchup } from "./analysis";
 import {
     SuggestionConfig,
     getSuggestions,
@@ -893,6 +893,60 @@ describe("suggestion blindability", () => {
 });
 
 describe("suggestion context standardization", () => {
+    test("reduces corrections driven by missing teammates or opponents without inventing a penalty", () => {
+        for (const family of ["ally", "enemy"] as const) {
+            for (const wins of [4000, 6000]) {
+                const dataset = createDataset([
+                    "candidate",
+                    "sampled",
+                    "missing",
+                ]);
+                const otherRole = family === "ally" ? Role.Jungle : Role.Middle;
+                makeViable(dataset, "candidate", Role.Top, 100000);
+                makeViable(dataset, "sampled", otherRole, 10000);
+                makeViable(dataset, "missing", otherRole, 90000);
+                const setInteraction = family === "ally" ? setDuo : setMatchup;
+                setInteraction(
+                    dataset,
+                    "candidate",
+                    Role.Top,
+                    "sampled",
+                    otherRole,
+                    wins,
+                    10000,
+                );
+                const analyzeInteraction =
+                    family === "ally" ? analyzeDuo : analyzeMatchup;
+                const sampled = analyzeInteraction(
+                    dataset,
+                    Role.Top,
+                    "candidate",
+                    otherRole,
+                    "sampled",
+                    1000,
+                );
+                // Historically only "sampled" was observed; it represents 10%
+                // of the target pool. Previously the other 90% was assumed neutral.
+                const previousCorrection = sampled.rating * (0.1 - 1);
+                const candidate = findTopSuggestion(
+                    getSuggestions(dataset, dataset, new Map(), new Map(), {
+                        ...defaultConfig,
+                        blindabilityWeight: 0,
+                        compositionInfluence: 0,
+                    }),
+                    "candidate",
+                );
+                expect(Math.sign(candidate.contextResult.rating)).toBe(
+                    Math.sign(previousCorrection),
+                );
+                expect(Math.abs(candidate.contextResult.rating)).toBeLessThan(
+                    Math.abs(previousCorrection) * 0.1,
+                );
+                expect(candidate.draftResult.winrate).toBeCloseTo(0.5);
+            }
+        }
+    });
+
     test("lowers a selectively picked champion in an open draft and restores it in a favorable matchup", () => {
         const dataset = createDataset([
             "situational",
@@ -1087,6 +1141,10 @@ describe("flex-pick suggestion uncertainty", () => {
             middle.draftResult.winrate * 0.75 +
                 support.draftResult.winrate * 0.25,
         );
+        expect(uncertain.contextResult.rating).toBeCloseTo(
+            middle.contextResult.rating * 0.75 +
+                support.contextResult.rating * 0.25,
+        );
         expect(uncertain.blindabilityResult.adjustedWinrate).toBeCloseTo(
             uncertain.contextResult.adjustedWinrate,
         );
@@ -1131,6 +1189,9 @@ describe("flex-pick suggestion uncertainty", () => {
         );
         expect(uncertain.draftResult.winrate).toBeCloseTo(
             jungle.draftResult.winrate,
+        );
+        expect(uncertain.contextResult.rating).toBeCloseTo(
+            jungle.contextResult.rating,
         );
     });
 });

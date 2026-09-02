@@ -259,8 +259,9 @@ export default function SettingsDialog() {
                         rate when players usually select it with unusually
                         favorable teammates or opponents. Unrevealed slots use
                         the normal mix of available champions, while revealed
-                        picks use their direct interactions. Values above 100%
-                        make this correction more conservative.
+                        picks use their direct interactions. Poorly supported
+                        corrections shrink toward zero. Values above 100%
+                        amplify both positive and negative corrections.
                     </p>
                     <label class="mt-3 grid gap-1">
                         <span class="flex justify-between gap-2 text-sm uppercase">
