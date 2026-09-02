@@ -10,8 +10,11 @@ Some of the new features added to this fork:
   - This lets you get more off-meta recommendations while still considering overall winrate
 - Configurable role matchup and duo influence.
   - This lets you choose which specific roles you want to counter/synergize with
+- Configurable situational adjustment
+  - Situational Δ adjusts a champion's base win rate from the favorable or unfavorable drafts in which players usually select it to the normal mix of available teammates and opponents
+  - Revealed picks use their direct interactions instead, allowing situational champions to rise when the current draft actually suits them; influence can be tuned from 0–200%
 - Configurable blindability scoring
-  - This rewards champions with consistently strong synergies and matchups when picks are still unknown, while accounting for data confidence
+  - Blind Δ measures the downside of unrevealed picks, rewarding champions with consistently strong synergies and matchups while accounting for data confidence
 - Configurable team composition scoring
   - The Comp Δ rewards picks that improve damage balance, frontline, fight planning through engage or peel, hard crowd control, waveclear, and sustained damage, using a five-level capability gradient with more influence late in the allied draft
   - Damage balance and reliable fight planning receive slightly more weight than contextual needs such as waveclear and sustained damage

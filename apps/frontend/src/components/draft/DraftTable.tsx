@@ -374,6 +374,22 @@ export default function DraftTable() {
               ] as ColumnDef<Suggestion>[])
             : []),
         {
+            id: "context",
+            header: () => (
+                <span title="Adjustment from the champion's usual draft situations to the normal mix of available teammates and opponents">
+                    Situational Δ
+                </span>
+            ),
+            accessorFn: (suggestion) =>
+                suggestion.contextResult.adjustedWinrate -
+                suggestion.draftResult.winrate,
+            cell: (info) => (
+                <div class="flex justify-end">
+                    <WinrateDeltaText delta={info.getValue<number>()} />
+                </div>
+            ),
+        },
+        {
             id: "blindability",
             header: () => (
                 <span title="Adjustment for likely unknown teammates and enemy counters">
@@ -382,7 +398,7 @@ export default function DraftTable() {
             ),
             accessorFn: (suggestion) =>
                 suggestion.blindabilityResult.adjustedWinrate -
-                suggestion.draftResult.winrate,
+                suggestion.contextResult.adjustedWinrate,
             cell: (info) => (
                 <div class="flex justify-end">
                     <WinrateDeltaText delta={info.getValue<number>()} />

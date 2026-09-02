@@ -76,6 +76,7 @@ export function createDraftAnalysisContext() {
     });
     const suggestionConfig = () => ({
         ...draftAnalysisConfig(),
+        contextInfluence: config.contextInfluence,
         blindabilityWeight: config.blindabilityWeight,
         enemySafetyPriority: config.enemySafetyPriority,
         compositionInfluence: config.compositionInfluence,

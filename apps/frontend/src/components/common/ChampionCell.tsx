@@ -19,7 +19,7 @@ export default function ChampionCell(props: Props) {
     const name = () => championName(championData(), config);
 
     return (
-        <div class="flex gap-2">
+        <div class="flex items-center gap-2">
             <ChampionIcon championKey={props.championKey} size={36} />
             <Show when={!props.hideName}>
                 <span class="uppercase truncate">

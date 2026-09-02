@@ -34,6 +34,7 @@ export default function SettingsDialog() {
         championWinrateInfluence: config.championWinrateInfluence,
         matchupRoleWeights: { ...config.matchupRoleWeights },
         duoRoleWeights: { ...config.duoRoleWeights },
+        contextInfluence: config.contextInfluence,
         blindabilityWeight: config.blindabilityWeight,
         enemySafetyPriority: config.enemySafetyPriority,
         compositionInfluence: config.compositionInfluence,
@@ -248,6 +249,48 @@ export default function SettingsDialog() {
                             )}
                         </For>
                     </div>
+                </fieldset>
+                <fieldset class="mt-5">
+                    <legend class="text-lg uppercase">
+                        Situational adjustment
+                    </legend>
+                    <p class="text-sm opacity-60">
+                        Situational adjustment corrects a champion's base win
+                        rate when players usually select it with unusually
+                        favorable teammates or opponents. Unrevealed slots use
+                        the normal mix of available champions, while revealed
+                        picks use their direct interactions. Values above 100%
+                        make this correction more conservative.
+                    </p>
+                    <label class="mt-3 grid gap-1">
+                        <span class="flex justify-between gap-2 text-sm uppercase">
+                            <span>Adjustment strength</span>
+                            <span class="tabular-nums opacity-70">
+                                {draftWeights.contextInfluence}%
+                            </span>
+                        </span>
+                        <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            step="5"
+                            class="w-full accent-secondary"
+                            value={draftWeights.contextInfluence}
+                            aria-label="Situational adjustment strength"
+                            onInput={(event) =>
+                                setDraftWeights(
+                                    "contextInfluence",
+                                    event.currentTarget.valueAsNumber,
+                                )
+                            }
+                            onChange={(event) =>
+                                setConfig({
+                                    contextInfluence:
+                                        event.currentTarget.valueAsNumber,
+                                })
+                            }
+                        />
+                    </label>
                 </fieldset>
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">Blindability</legend>

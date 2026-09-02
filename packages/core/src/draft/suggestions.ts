@@ -27,6 +27,7 @@ import {
 } from "../composition/composition";
 
 export type SuggestionConfig = AnalyzeDraftConfig & {
+    contextInfluence: number;
     blindabilityWeight: number;
     enemySafetyPriority: number;
     compositionInfluence: number;
@@ -63,10 +64,21 @@ export type CompositionResult = {
     winrateDelta: number;
 };
 
+export type ContextResult = {
+    allyObservedRating: number;
+    allyMetaRating: number;
+    enemyObservedRating: number;
+    enemyMetaRating: number;
+    rating: number;
+    adjustedRating: number;
+    adjustedWinrate: number;
+};
+
 export interface Suggestion {
     championKey: string;
     role: Role;
     draftResult: DraftResult;
+    contextResult: ContextResult;
     blindabilityResult: BlindabilityResult;
     compositionResult: CompositionResult;
     adjustedRating: number;
@@ -76,10 +88,15 @@ export interface Suggestion {
 type RawSuggestion = Omit<
     Suggestion,
     | "blindabilityResult"
+    | "contextResult"
     | "compositionResult"
     | "adjustedRating"
     | "adjustedWinrate"
 > & {
+    allyObservedContextRating: number;
+    allyMetaContextRating: number;
+    enemyObservedContextRating: number;
+    enemyMetaContextRating: number;
     synergyGap: number;
     matchupGap: number;
     counterExposure: number;
@@ -117,6 +134,13 @@ const CROSS_ROLE_COUNTER_WEIGHT = 0.125;
 type WeightedInteraction = {
     rating: number;
     weight: number;
+};
+
+type ContextInteraction = {
+    rating: number;
+    games: number;
+    metaWeight: number;
+    available: boolean;
 };
 
 type AvailableChampion = {
@@ -260,6 +284,10 @@ function getWeight(value: number) {
     return Math.min(100, Math.max(0, value)) / 100;
 }
 
+function getContextWeight(value: number) {
+    return Math.min(200, Math.max(0, value)) / 100;
+}
+
 function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
@@ -287,6 +315,46 @@ function getInteractionConfidence(
     );
 
     return weightedGames / (weightedGames + priorGames * totalWeight);
+}
+
+function getWeightedRating(
+    interactions: ContextInteraction[],
+    getWeight: (interaction: ContextInteraction) => number,
+) {
+    const validInteractions = interactions.filter((interaction) => {
+        const weight = getWeight(interaction);
+
+        return (
+            Number.isFinite(interaction.rating) &&
+            Number.isFinite(weight) &&
+            weight > 0
+        );
+    });
+    const totalWeight = validInteractions.reduce(
+        (total, interaction) => total + getWeight(interaction),
+        0,
+    );
+    if (totalWeight === 0) return 0;
+
+    return (
+        validInteractions.reduce(
+            (total, interaction) =>
+                total + interaction.rating * getWeight(interaction),
+            0,
+        ) / totalWeight
+    );
+}
+
+function getContextRatings(interactions: ContextInteraction[]) {
+    return {
+        // Pair-game weighting reconstructs the kind of context in which the
+        // champion was actually selected. Meta weighting asks how the same
+        // interactions would look against the normally available champion pool.
+        observed: getWeightedRating(interactions, ({ games }) => games),
+        meta: getWeightedRating(interactions, ({ metaWeight, available }) =>
+            available ? metaWeight : 0,
+        ),
+    };
 }
 
 export function getSuggestions(
@@ -336,19 +404,17 @@ export function getSuggestionsWithRoleUncertainty(
         ...allyChampions,
         ...bannedChampions,
     ]);
-    const availableChampionsByRole = Object.fromEntries(
+    const eligibleChampionsByRole = Object.fromEntries(
         ROLES.map((role) => [
             role,
             Object.keys(dataset.championData)
-                .filter(
-                    (championKey) =>
-                        !unavailableChampions.has(championKey) &&
-                        isEligibleInRole(
-                            synergyMatchupDataset,
-                            championKey,
-                            role,
-                            config.minGames,
-                        ),
+                .filter((championKey) =>
+                    isEligibleInRole(
+                        synergyMatchupDataset,
+                        championKey,
+                        role,
+                        config.minGames,
+                    ),
                 )
                 .map((championKey) => ({
                     championKey,
@@ -463,12 +529,13 @@ export function getSuggestionsWithRoleUncertainty(
             ) as Record<Role, number>;
             let synergyGap = 0;
             let synergyScore = 0;
+            let allyObservedContextRating = 0;
+            let allyMetaContextRating = 0;
             const synergyInteractions: { games: number; weight: number }[] = [];
             for (const teammateRole of ROLES) {
+                if (teammateRole === role) continue;
                 const roleProbability = allyOpenRoleProbability[teammateRole];
-                if (roleProbability === 0) continue;
-
-                const results = availableChampionsByRole[teammateRole]
+                const results = eligibleChampionsByRole[teammateRole]
                     .filter((teammate) => teammate.championKey !== championKey)
                     .map((teammate) => ({
                         result: getDuoResult(
@@ -477,20 +544,38 @@ export function getSuggestionsWithRoleUncertainty(
                             teammate.championKey,
                             teammateRole,
                         ),
-                        weight: teammate.pickWeight,
+                        metaWeight: teammate.pickWeight,
+                        available: !unavailableChampions.has(
+                            teammate.championKey,
+                        ),
                     }));
-                const allyFit = getAllyFitInteractionScore(
-                    results.map(({ result, weight }) => ({
+                const contextRatings = getContextRatings(
+                    results.map(({ result, metaWeight, available }) => ({
                         rating: result.rating,
-                        weight,
+                        games: result.games,
+                        metaWeight,
+                        available,
+                    })),
+                );
+                allyObservedContextRating += contextRatings.observed;
+                allyMetaContextRating += contextRatings.meta * roleProbability;
+                if (roleProbability === 0) continue;
+
+                const availableResults = results.filter(
+                    ({ available }) => available,
+                );
+                const allyFit = getAllyFitInteractionScore(
+                    availableResults.map(({ result, metaWeight }) => ({
+                        rating: result.rating,
+                        weight: metaWeight,
                     })),
                 );
                 synergyGap += allyFit.gap * roleProbability;
                 synergyScore += allyFit.score * roleProbability;
                 synergyInteractions.push(
-                    ...results.map(({ result, weight }) => ({
+                    ...availableResults.map(({ result, metaWeight }) => ({
                         games: result.games,
-                        weight: weight * roleProbability,
+                        weight: metaWeight * roleProbability,
                     })),
                 );
             }
@@ -500,6 +585,8 @@ export function getSuggestionsWithRoleUncertainty(
             let counterExposure = 0;
             let hardCounterRate = 0;
             let counterExposureWeight = 0;
+            let enemyObservedContextRating = 0;
+            let enemyMetaContextRating = 0;
             const matchupInteractions: { games: number; weight: number }[] = [];
             for (const opponentRole of ROLES) {
                 const matchupRoleWeight =
@@ -508,26 +595,60 @@ export function getSuggestionsWithRoleUncertainty(
                     enemyOpenRoleProbability[opponentRole] *
                     matchupRoleWeight *
                     (opponentRole === role ? 1 : CROSS_ROLE_COUNTER_WEIGHT);
-                if (roleProbability === 0) continue;
-
-                const possibleOpponents = availableChampionsByRole[
+                const possibleOpponents = eligibleChampionsByRole[
                     opponentRole
                 ].filter((opponent) => opponent.championKey !== championKey);
-                const results = withCounterPickWeights(possibleOpponents).map(
-                    (opponent) => ({
-                        result: getMatchupResult(
-                            championKey,
-                            role,
-                            opponent.championKey,
-                            opponentRole,
-                        ),
-                        weight: opponent.counterPickWeight,
+                const availableOpponents = possibleOpponents.filter(
+                    ({ championKey: opponentKey }) =>
+                        !unavailableChampions.has(opponentKey),
+                );
+                const availableOpponentKeys = new Set(
+                    availableOpponents.map(({ championKey }) => championKey),
+                );
+                const results = possibleOpponents.map((opponent) => ({
+                    result: getMatchupResult(
+                        championKey,
+                        role,
+                        opponent.championKey,
+                        opponentRole,
+                    ),
+                    metaWeight: opponent.pickWeight,
+                    available: availableOpponentKeys.has(opponent.championKey),
+                }));
+                const contextRatings = getContextRatings(
+                    results.map(({ result, metaWeight, available }) => ({
+                        rating: result.rating,
+                        games: result.games,
+                        metaWeight,
+                        available,
+                    })),
+                );
+                enemyObservedContextRating +=
+                    contextRatings.observed * matchupRoleWeight;
+                enemyMetaContextRating +=
+                    contextRatings.meta *
+                    enemyOpenRoleProbability[opponentRole] *
+                    matchupRoleWeight;
+                if (roleProbability === 0) continue;
+
+                const resultByChampion = new Map(
+                    results.map((result) => [
+                        result.result.championKeyB,
+                        result.result,
+                    ]),
+                );
+                const availableResults = withCounterPickWeights(
+                    availableOpponents,
+                ).map((opponent) => ({
+                    result: resultByChampion.get(opponent.championKey)!,
+                    weight: opponent.counterPickWeight,
+                }));
+                const weightedRatings = availableResults.map(
+                    ({ result, weight }) => ({
+                        rating: result.rating,
+                        weight,
                     }),
                 );
-                const weightedRatings = results.map(({ result, weight }) => ({
-                    rating: result.rating,
-                    weight,
-                }));
                 const matchupDistribution =
                     getAllyFitInteractionScore(weightedRatings);
                 const counterExposureResult =
@@ -540,7 +661,7 @@ export function getSuggestionsWithRoleUncertainty(
                     counterExposureResult.hardCounterRate * roleProbability;
                 counterExposureWeight += roleProbability;
                 matchupInteractions.push(
-                    ...results.map(({ result, weight }) => ({
+                    ...availableResults.map(({ result, weight }) => ({
                         games: result.games,
                         weight: weight * roleProbability,
                     })),
@@ -645,6 +766,10 @@ export function getSuggestionsWithRoleUncertainty(
                 championKey,
                 role,
                 draftResult,
+                allyObservedContextRating,
+                allyMetaContextRating,
+                enemyObservedContextRating,
+                enemyMetaContextRating,
                 synergyGap,
                 matchupGap,
                 counterExposure,
@@ -722,6 +847,22 @@ export function getSuggestionsWithRoleUncertainty(
     }
 
     const suggestions = rawSuggestions.map<Suggestion>((suggestion) => {
+        // The base win rate describes the contexts in which players actually
+        // selected this champion. Re-center every interaction family from that
+        // observed mix to the ordinary meta mix for slots that remain open.
+        // Once a slot is revealed, analyzeDraft supplies its direct interaction
+        // and only the observed-context centering remains.
+        const contextWeight = getContextWeight(config.contextInfluence);
+        const rawContextRating =
+            suggestion.allyMetaContextRating -
+            suggestion.allyObservedContextRating +
+            suggestion.enemyMetaContextRating -
+            suggestion.enemyObservedContextRating;
+        const contextRating =
+            contextWeight === 0 ? 0 : rawContextRating * contextWeight;
+        const contextAdjustedRating =
+            winrateToRating(suggestion.draftResult.winrate) + contextRating;
+        const contextAdjustedWinrate = ratingToWinrate(contextAdjustedRating);
         // Each interaction rating has already been shrunk toward its expected
         // result by analyzeDuo/analyzeMatchup. Applying aggregate confidence
         // here would discount the same sample-size uncertainty a second time.
@@ -751,8 +892,7 @@ export function getSuggestionsWithRoleUncertainty(
             (synergyRating * allyFitShare * 2 +
                 matchupRating * enemySafetyShare * 2) *
             getWeight(config.blindabilityWeight);
-        const adjustedRating =
-            winrateToRating(suggestion.draftResult.winrate) + rating;
+        const adjustedRating = contextAdjustedRating + rating;
         const blindabilityAdjustedWinrate = ratingToWinrate(adjustedRating);
         // Composition and enemy-response scores use the same viable, recent
         // role pool, but are centered separately to preserve their scales.
@@ -795,6 +935,15 @@ export function getSuggestionsWithRoleUncertainty(
             championKey: suggestion.championKey,
             role: suggestion.role,
             draftResult: suggestion.draftResult,
+            contextResult: {
+                allyObservedRating: suggestion.allyObservedContextRating,
+                allyMetaRating: suggestion.allyMetaContextRating,
+                enemyObservedRating: suggestion.enemyObservedContextRating,
+                enemyMetaRating: suggestion.enemyMetaContextRating,
+                rating: contextRating,
+                adjustedRating: contextAdjustedRating,
+                adjustedWinrate: contextAdjustedWinrate,
+            },
             blindabilityResult: {
                 synergyGap: suggestion.synergyGap,
                 matchupGap: suggestion.matchupGap,

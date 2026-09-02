@@ -24,6 +24,7 @@ export type DraftGapConfig = {
     showFavouritesAtTop: boolean;
     banPlacement: DraftTablePlacement;
     unownedPlacement: DraftTablePlacement;
+    contextInfluence: number;
     blindabilityWeight: number;
     enemySafetyPriority: number;
     compositionInfluence: number;

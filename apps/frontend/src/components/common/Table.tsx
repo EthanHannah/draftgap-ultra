@@ -43,7 +43,7 @@ export function Table<T>(props: Props<T> & JSX.HTMLAttributes<HTMLDivElement>) {
             )}
         >
             <table
-                class="min-w-full text-lg md:text-xl lg:text-2xl"
+                class="min-w-full"
                 classList={{
                     "divide-y divide-neutral-700": rows.length > 0,
                 }}

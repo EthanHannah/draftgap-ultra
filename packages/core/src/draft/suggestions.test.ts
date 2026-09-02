@@ -150,6 +150,7 @@ const defaultConfig: SuggestionConfig = {
     minGames: 1,
     matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
+    contextInfluence: 100,
     blindabilityWeight: 100,
     enemySafetyPriority: 75,
     compositionInfluence: 50,
@@ -697,6 +698,133 @@ describe("suggestion blindability", () => {
     });
 });
 
+describe("suggestion context standardization", () => {
+    test("lowers a selectively picked champion in an open draft and restores it in a favorable matchup", () => {
+        const dataset = createDataset([
+            "situational",
+            "generalist",
+            "commonEnemy",
+            "rareEnemy",
+        ]);
+        makeViable(dataset, "situational", Role.Top, 10000);
+        makeViable(dataset, "generalist", Role.Top, 10000);
+        makeViable(dataset, "commonEnemy", Role.Top, 9000);
+        makeViable(dataset, "rareEnemy", Role.Top, 1000);
+        dataset.championData.situational.statsByRole[Role.Top].wins = 5500;
+        dataset.championData.generalist.statsByRole[Role.Top].wins = 5200;
+
+        // The situational champion was mostly selected into its rare, excellent
+        // matchup even though the ordinary meta is mostly the bad matchup.
+        setMatchup(
+            dataset,
+            "situational",
+            Role.Top,
+            "commonEnemy",
+            Role.Top,
+            450,
+            1000,
+        );
+        setMatchup(
+            dataset,
+            "situational",
+            Role.Top,
+            "rareEnemy",
+            Role.Top,
+            5400,
+            9000,
+        );
+
+        const config = {
+            ...defaultConfig,
+            riskLevel: "very-high" as const,
+            blindabilityWeight: 0,
+            compositionInfluence: 0,
+        };
+        const openSuggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map(),
+            config,
+        );
+        const openSituational = findTopSuggestion(
+            openSuggestions,
+            "situational",
+        );
+        const openGeneralist = findTopSuggestion(openSuggestions, "generalist");
+        const favorableSuggestions = getSuggestions(
+            dataset,
+            dataset,
+            new Map(),
+            new Map([[Role.Top, "rareEnemy"]]),
+            config,
+        );
+        const favorableSituational = findTopSuggestion(
+            favorableSuggestions,
+            "situational",
+        );
+        const favorableGeneralist = findTopSuggestion(
+            favorableSuggestions,
+            "generalist",
+        );
+        const disabledContext = findTopSuggestion(
+            getSuggestions(dataset, dataset, new Map(), new Map(), {
+                ...config,
+                contextInfluence: 0,
+            }),
+            "situational",
+        );
+        const doubleContext = findTopSuggestion(
+            getSuggestions(dataset, dataset, new Map(), new Map(), {
+                ...config,
+                contextInfluence: 200,
+            }),
+            "situational",
+        );
+
+        expect(openSituational.contextResult.rating).toBeLessThan(0);
+        expect(openSituational.contextResult.adjustedWinrate).toBeLessThan(
+            openSituational.draftResult.winrate,
+        );
+        expect(openSituational.adjustedWinrate).toBeLessThan(
+            openGeneralist.adjustedWinrate,
+        );
+        expect(favorableSituational.adjustedWinrate).toBeGreaterThan(
+            openSituational.adjustedWinrate,
+        );
+        expect(favorableSituational.adjustedWinrate).toBeGreaterThan(
+            favorableGeneralist.adjustedWinrate,
+        );
+        expect(disabledContext.contextResult.rating).toBe(0);
+        expect(disabledContext.contextResult.adjustedWinrate).toBeCloseTo(
+            disabledContext.draftResult.winrate,
+        );
+        expect(doubleContext.contextResult.rating).toBeCloseTo(
+            openSituational.contextResult.rating * 2,
+        );
+    });
+
+    test("does not penalize low pick volume by itself", () => {
+        const dataset = createDataset(["rare", "popular"]);
+        makeViable(dataset, "rare", Role.Top, 100);
+        makeViable(dataset, "popular", Role.Top, 10000);
+
+        const rare = findTopSuggestion(
+            getSuggestions(dataset, dataset, new Map(), new Map(), {
+                ...defaultConfig,
+                blindabilityWeight: 0,
+                compositionInfluence: 0,
+            }),
+            "rare",
+        );
+
+        expect(rare.contextResult.rating).toBe(0);
+        expect(rare.contextResult.adjustedWinrate).toBeCloseTo(
+            rare.draftResult.winrate,
+        );
+    });
+});
+
 describe("flex-pick suggestion uncertainty", () => {
     test("weights a suggestion against every possible enemy role", () => {
         const dataset = createDataset(["candidate", "flexEnemy"]);
@@ -766,7 +894,7 @@ describe("flex-pick suggestion uncertainty", () => {
                 support.draftResult.winrate * 0.25,
         );
         expect(uncertain.blindabilityResult.adjustedWinrate).toBeCloseTo(
-            uncertain.draftResult.winrate,
+            uncertain.contextResult.adjustedWinrate,
         );
     });
 
