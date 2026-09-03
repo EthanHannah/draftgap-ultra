@@ -35,6 +35,7 @@ export function ButtonGroup<T>(
                 {(option, i) => (
                     <button
                         type="button"
+                        aria-pressed={props.selected === option.value}
                         class={cn(
                             "uppercase leading-4 relative inline-flex items-center border text-neutral-300 border-neutral-700 bg-primary px-3 font-medium hover:bg-neutral-600 focus:z-10 py-3 transition-all ease-in-out duration-150",
                             {

@@ -30,6 +30,7 @@ import { championName } from "../../utils/i18n";
 import { useDraftAnalysis } from "../../contexts/DraftAnalysisContext";
 import { ratingToWinrate } from "@draftgap/core/src/rating/ratings";
 import type { DraftResult } from "@draftgap/core/src/draft/analysis";
+import { getChampionScaling } from "@draftgap/core/src/draft/scaling";
 
 function getRoundedWinrateDelta(delta: number) {
     return Number((delta * 100).toFixed(2));
@@ -60,7 +61,7 @@ function WinrateDeltaText(props: { delta: number }) {
 }
 
 export default function DraftTable() {
-    const { dataset } = useDataset();
+    const { dataset, dataset30Days } = useDataset();
     const { selection, pickChampion, select, bans, ownedChampions } =
         useDraft();
     const {
@@ -69,6 +70,7 @@ export default function DraftTable() {
         setRoleFilter,
         favouriteFilter,
         setFavouriteFilter,
+        scalingFilter,
     } = useDraftFilters();
     const { suggestions } = useDraftSuggestions();
     const { allyDraftAnalysis, opponentDraftAnalysis } = useDraftAnalysis();
@@ -132,6 +134,18 @@ export default function DraftTable() {
         if (favouriteFilter()) {
             filtered = filtered.filter((s) =>
                 isFavourite(s.championKey, s.role),
+            );
+        }
+
+        const scaling = scalingFilter();
+        if (scaling !== undefined) {
+            const scalingDataset = dataset30Days();
+            filtered = filtered.filter(
+                (s) =>
+                    getChampionScaling(
+                        scalingDataset?.championData[s.championKey]
+                            ?.statsByRole[s.role],
+                    ) === scaling,
             );
         }
 
