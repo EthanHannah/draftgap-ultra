@@ -36,6 +36,7 @@ const DEFAULT_CONFIG: DraftGapConfig = {
 
     // MISC
     defaultStatsSite: "lolalytics",
+    lolalyticsTimeRange: "current-patch",
     enableBetaFeatures: false,
 
     // LOL CLIENT

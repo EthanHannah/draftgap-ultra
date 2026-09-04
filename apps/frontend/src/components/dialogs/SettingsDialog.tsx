@@ -520,6 +520,25 @@ export default function SettingsDialog() {
             <div>
                 <h3 class="text-3xl uppercase">Misc</h3>
                 <div class="flex flex-col gap-1 mt-2">
+                    <span class="text-lg uppercase">Lolalytics time range</span>
+                    <ButtonGroup
+                        options={
+                            [
+                                {
+                                    value: "current-patch",
+                                    label: "Current patch",
+                                },
+                                { value: "30-days", label: "Last 30 days" },
+                            ] as const
+                        }
+                        selected={config.lolalyticsTimeRange}
+                        size="sm"
+                        onChange={(value) =>
+                            setConfig("lolalyticsTimeRange", value)
+                        }
+                    />
+                </div>
+                <div class="flex flex-col gap-1 mt-2">
                     <span class="text-lg uppercase">Favourite builds site</span>
                     <ButtonGroup
                         options={statsSiteOptions}

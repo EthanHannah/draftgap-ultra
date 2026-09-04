@@ -9,6 +9,7 @@ use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::async_runtime::Mutex;
+mod lolalytics;
 
 struct AppState {
     lcu_data: Mutex<Option<LcuData>>,
@@ -190,7 +191,9 @@ fn main() {
             get_champ_select_session,
             get_current_summoner,
             get_grid_champions,
-            get_pickable_champion_ids
+            get_pickable_champion_ids,
+            lolalytics::update_lolalytics_view,
+            lolalytics::close_lolalytics_view
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

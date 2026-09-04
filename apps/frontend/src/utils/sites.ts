@@ -1,5 +1,8 @@
 import { Role } from "@draftgap/core/src/models/Role";
-import { StatsSite } from "@draftgap/core/src/models/user/Config";
+import {
+    LolalyticsTimeRange,
+    StatsSite,
+} from "@draftgap/core/src/models/user/Config";
 
 const UGG_ROLES = ["top", "jungle", "mid", "adc", "support"] as const;
 const OP_GG_ROLES = ["top", "jungle", "mid", "adc", "support"] as const;
@@ -15,13 +18,14 @@ export const linkByStatsSite = (
     statsSite: StatsSite,
     champion: string,
     role: Role,
+    timeRange: LolalyticsTimeRange = "current-patch",
 ) => {
     champion = champion.toLowerCase();
     if (champion === "monkeyking") champion = "wukong";
 
     switch (statsSite) {
         case "lolalytics":
-            return `https://lolalytics.com/lol/${champion}/build/?lane=${LOLALYTICS_ROLES[role]}`;
+            return `https://lolalytics.com/lol/${champion}/build/?lane=${LOLALYTICS_ROLES[role]}${timeRange === "30-days" ? "&patch=30" : ""}`;
         case "u.gg":
             return `https://u.gg/lol/champions/${champion}/build/${UGG_ROLES[role]}`;
         case "op.gg":

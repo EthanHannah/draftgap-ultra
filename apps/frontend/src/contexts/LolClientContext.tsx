@@ -28,6 +28,8 @@ import { useDraft } from "./DraftContext";
 import { useMedia } from "../hooks/useMedia";
 import { useUser } from "./UserContext";
 import { LolalyticsRole } from "../../../dataset/src/lolalytics/roles";
+import { getLocalLockedPick } from "../utils/locked-pick";
+import { useDraftView } from "./DraftViewContext";
 
 const createChampSelectSession = (): LolChampSelectChampSelectSession => ({
     actions: [],
@@ -97,6 +99,9 @@ export const createLolClientContext = () => {
         setOwnedChampions,
     } = useDraft();
     const { isFavourite, setFavourite } = useUser();
+    const { setCurrentDraftView } = useDraftView();
+    const [lockedPick, setLockedPick] =
+        createSignal<ReturnType<typeof getLocalLockedPick>>();
 
     const [clientState, setClientState] = createSignal<ClientState>(
         ClientState.NotFound,
@@ -239,6 +244,24 @@ export const createLolClientContext = () => {
             }
 
             setChampSelectSession(session);
+
+            const pick = getLocalLockedPick(session);
+            if (firstTime) {
+                setLockedPick(undefined);
+            }
+            if (pick) {
+                const previous = lockedPick();
+                if (
+                    previous?.championKey !== pick.championKey ||
+                    previous.role !== pick.role ||
+                    previous.index !== pick.index
+                ) {
+                    setLockedPick(pick);
+                }
+                if (!previous || previous.championKey !== pick.championKey) {
+                    setCurrentDraftView({ type: "lolalytics" });
+                }
+            }
         });
     };
 
@@ -376,6 +399,7 @@ export const createLolClientContext = () => {
     return {
         clientState,
         champSelectSession,
+        lockedPick,
         startLolClientIntegration,
         stopLolClientIntegration,
         clientError,

@@ -101,6 +101,7 @@ export function PickOptions(props: { team: Team; index: number }) {
                                                       teamPicks()[props.index]
                                                           .championKey,
                                               )![0] as Role,
+                                              config.lolalyticsTimeRange,
                                           )
                                         : "#"
                                 }

@@ -93,6 +93,7 @@ export function Pick(props: Props) {
                 [...teamComp().entries()].find(
                     ([, value]) => value === pick().championKey,
                 )![0] as Role,
+                config.lolalyticsTimeRange,
             );
             if (isDesktop) {
                 openUrl(link);

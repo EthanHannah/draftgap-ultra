@@ -40,6 +40,7 @@ import { buttonVariants } from "./components/common/Button";
 import { cn } from "./utils/style";
 import { formatPatch } from "./utils/strings";
 import { LanguageDropdownMenu } from "./components/LanguageMenu";
+import { LolalyticsView } from "./components/views/LolalyticsView";
 
 const AnalysisView = lazy(
     () => import("./components/views/analysis/AnalysisView"),
@@ -56,7 +57,7 @@ const App: Component = () => {
     const { dataset, isLoaded } = useDataset();
     const { analysisPick, setAnalysisPick, showAnalysisPick } =
         useDraftAnalysis();
-    const { startLolClientIntegration, stopLolClientIntegration } =
+    const { startLolClientIntegration, stopLolClientIntegration, lockedPick } =
         useLolClient();
     const { isDesktop, isMobileLayout } = useMedia();
 
@@ -131,6 +132,10 @@ const App: Component = () => {
                                             label: "Draft Analysis",
                                             value: "analysis",
                                         },
+                                        {
+                                            label: "Lolalytics",
+                                            value: "lolalytics",
+                                        },
                                         ...(config.enableBetaFeatures
                                             ? ([
                                                   {
@@ -149,6 +154,12 @@ const App: Component = () => {
                                     })
                                 }
                                 class="xl:px-8"
+                            />
+                            <LolalyticsView
+                                pick={lockedPick()}
+                                active={
+                                    currentDraftView().type === "lolalytics"
+                                }
                             />
                             <Suspense
                                 fallback={

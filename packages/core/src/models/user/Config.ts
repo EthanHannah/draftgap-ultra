@@ -4,6 +4,7 @@ import { RoleWeights } from "../Role";
 export const DEFAULT_RECOMMENDATION_MIN_GAMES = 5000;
 
 export type StatsSite = "op.gg" | "u.gg" | "lolalytics";
+export type LolalyticsTimeRange = "current-patch" | "30-days";
 
 export const DraftTablePlacement = {
     Bottom: "bottom",
@@ -35,6 +36,7 @@ export type DraftGapConfig = {
 
     // MISC
     defaultStatsSite: StatsSite;
+    lolalyticsTimeRange: LolalyticsTimeRange;
     enableBetaFeatures: boolean;
 
     // LOL CLIENT
