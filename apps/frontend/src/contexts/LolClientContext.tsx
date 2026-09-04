@@ -176,6 +176,7 @@ export const createLolClientContext = () => {
                     currentSummoner.summonerId === selection.summonerId;
                 pickChampion(team, index, championKey, role, {
                     updateSelection: false,
+                    updateView: false,
                     resetFilters,
                 });
 
@@ -234,14 +235,10 @@ export const createLolClientContext = () => {
                     (s) => s.cellId === nextPick.actorCellId,
                 );
 
-                // Only update next pick if ally
-                // Irritating to have it update when opponent picks
+                // Track the next ally pick without navigating away from the
+                // user's current view. Client updates are not manual clicks.
                 if (nextPick.isAllyAction) {
-                    select(
-                        nextPick.isAllyAction ? "ally" : "opponent",
-                        index,
-                        false,
-                    );
+                    select("ally", index, false, false);
                 }
             }
 

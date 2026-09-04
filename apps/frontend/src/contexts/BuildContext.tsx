@@ -18,6 +18,7 @@ import { useDraftView } from "./DraftViewContext";
 import { useMedia } from "../hooks/useMedia";
 import { fetchDesktopBuild, fetchDesktopItemSets } from "../utils/builds";
 import { useUser } from "./UserContext";
+import { BuildQueryKey, getBuildPlaceholderData } from "../utils/build-query";
 
 export function createBuildContext() {
     const { allyTeam, opponentTeam } = useDraft();
@@ -103,15 +104,23 @@ export function createBuildContext() {
     };
 
     const queryClient = useQueryClient();
+    const queryKey = createMemo(
+        () =>
+            [
+                "build",
+                config.lolalyticsTimeRange,
+                championKey(),
+                championRole(),
+                theirTeamComp()
+                    ? Object.fromEntries(theirTeamComp()!)
+                    : undefined,
+                dataset(),
+            ] satisfies BuildQueryKey,
+    );
     const query = createQuery(() => ({
-        queryKey: [
-            "build",
-            config.lolalyticsTimeRange,
-            championKey(),
-            championRole(),
-            theirTeamComp() ? Object.fromEntries(theirTeamComp()!) : undefined,
-            dataset(),
-        ],
+        queryKey: queryKey(),
+        placeholderData: (previousData, previousQuery) =>
+            getBuildPlaceholderData(previousData, previousQuery, queryKey()),
         queryFn: async () => {
             if (
                 !isDesktop ||

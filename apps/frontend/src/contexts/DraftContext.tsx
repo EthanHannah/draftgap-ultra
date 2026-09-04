@@ -232,6 +232,7 @@ export function createDraftContext() {
         team: Team | undefined,
         index?: number,
         resetFilters = true,
+        updateView = true,
     ) => {
         if (team !== undefined && index !== undefined) {
             const teamPicks = team === "ally" ? allyTeam : opponentTeam;
@@ -250,10 +251,12 @@ export function createDraftContext() {
             resetDraftFilters();
         }
 
-        setCurrentDraftView({
-            type: "draft",
-            subType: (draftFinished() ? "draft" : team) ?? "draft",
-        });
+        if (updateView) {
+            setCurrentDraftView({
+                type: "draft",
+                subType: (draftFinished() ? "draft" : team) ?? "draft",
+            });
+        }
     };
 
     const draftFinished = () =>
