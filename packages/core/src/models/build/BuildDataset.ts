@@ -48,6 +48,12 @@ export type ItemsBuildData = {
     statsByOrder: Record<string, EntityStats>[];
     startingSets: Record<string, EntityStats>;
     sets: Record<string, EntityStats>;
+    combinedSets?: Record<string, CombinedBuildStats>;
+};
+
+export type CombinedBuildStats = EntityStats & {
+    completedGames: number;
+    extrapolatedGames: number;
 };
 
 export type SummonerSpellsBuildData = Record<string, SummonerSpellStats>;

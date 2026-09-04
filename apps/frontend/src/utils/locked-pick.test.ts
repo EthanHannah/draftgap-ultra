@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { Role } from "@draftgap/core/src/models/Role";
 import { LolChampSelectChampSelectSession } from "../types/Lcu";
-import { getLocalLockedPick } from "./locked-pick";
+import { getLocalLockedPick, getLockedBuildPick } from "./locked-pick";
 import { linkByStatsSite } from "./sites";
 
 function session(completed = true) {
@@ -27,6 +27,32 @@ function session(completed = true) {
 }
 
 describe("local lock-in", () => {
+    test("opens the local ally build on lock-in and trades, not every poll", () => {
+        const pick = getLocalLockedPick(session());
+        expect(getLockedBuildPick(undefined, pick, true)).toEqual({
+            team: "ally",
+            index: 1,
+        });
+        expect(getLockedBuildPick(pick, { ...pick! }, true)).toBeUndefined();
+        expect(
+            getLockedBuildPick(pick, { ...pick!, role: Role.Top }, true),
+        ).toBeUndefined();
+        expect(
+            getLockedBuildPick(pick, { ...pick!, championKey: "99" }, true),
+        ).toEqual({ team: "ally", index: 1 });
+        expect(getLockedBuildPick(pick, { ...pick!, index: 0 }, true)).toEqual({
+            team: "ally",
+            index: 0,
+        });
+        expect(
+            getLockedBuildPick(
+                undefined,
+                getLocalLockedPick(session(false)),
+                true,
+            ),
+        ).toBeUndefined();
+        expect(getLockedBuildPick(undefined, pick, false)).toBeUndefined();
+    });
     test("ignores hovered champions and completed teammate picks", () => {
         expect(getLocalLockedPick(session(false))).toBeUndefined();
     });

@@ -68,9 +68,9 @@ export const PathTable: Component<PathTableProps> = (props) => {
     });
 
     const runeAnalysis = (runeId: number) =>
-        buildAnalysisResult()!.runes[props.type][runeId];
+        buildAnalysisResult()!.runes[props.type][runeId] ?? { totalRating: 0 };
     const runeStats = (runeId: number) =>
-        partialBuildDataset()!.runes[props.type][runeId];
+        partialBuildDataset()!.runes[props.type][runeId] ?? { games: 0 };
 
     return (
         <div>
@@ -129,7 +129,12 @@ export const ShardTable: Component = () => {
     const { dataset } = useDataset();
     const { buildAnalysisResult, partialBuildDataset } = useBuild();
 
-    const shards = () => Object.values(dataset()!.statShardData);
+    // Older datasets contain a mismatched id on the flex shard; the map key is authoritative.
+    const shards = () =>
+        Object.entries(dataset()!.statShardData).map(([id, shard]) => ({
+            ...shard,
+            id: Number(id),
+        }));
 
     const shardsByPosition = createMemo(() => {
         const result = new Map<number, Map<number, StatShardData>>();
@@ -178,8 +183,10 @@ export const ShardTable: Component = () => {
                                         return (
                                             <Rune
                                                 runeId={shard.id}
-                                                rating={analysis.totalRating}
-                                                games={stats.games}
+                                                rating={
+                                                    analysis?.totalRating ?? 0
+                                                }
+                                                games={stats?.games ?? 0}
                                                 totalGames={
                                                     partialBuildDataset()!.games
                                                 }
@@ -229,6 +236,7 @@ export const Rune: Component<RuneProps> = (props) => {
             classList={{
                 "opacity-20": props.games / props.totalGames < 0.01,
             }}
+            disabled={props.games === 0}
             onClick={() =>
                 setSelectedEntity({
                     type: "rune",

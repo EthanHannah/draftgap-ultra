@@ -28,8 +28,9 @@ import { useDraft } from "./DraftContext";
 import { useMedia } from "../hooks/useMedia";
 import { useUser } from "./UserContext";
 import { LolalyticsRole } from "../../../dataset/src/lolalytics/roles";
-import { getLocalLockedPick } from "../utils/locked-pick";
+import { getLocalLockedPick, getLockedBuildPick } from "../utils/locked-pick";
 import { useDraftView } from "./DraftViewContext";
+import { useBuild } from "./BuildContext";
 
 const createChampSelectSession = (): LolChampSelectChampSelectSession => ({
     actions: [],
@@ -100,6 +101,7 @@ export const createLolClientContext = () => {
     } = useDraft();
     const { isFavourite, setFavourite } = useUser();
     const { setCurrentDraftView } = useDraftView();
+    const { setBuildPick } = useBuild();
     const [lockedPick, setLockedPick] =
         createSignal<ReturnType<typeof getLocalLockedPick>>();
 
@@ -258,8 +260,10 @@ export const createLolClientContext = () => {
                 ) {
                     setLockedPick(pick);
                 }
-                if (!previous || previous.championKey !== pick.championKey) {
-                    setCurrentDraftView({ type: "lolalytics" });
+                const buildPick = getLockedBuildPick(previous, pick, isDesktop);
+                if (buildPick) {
+                    setBuildPick(buildPick);
+                    setCurrentDraftView({ type: "builds" });
                 }
             }
         });

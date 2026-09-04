@@ -10,9 +10,6 @@ type DraftView =
       }
     | {
           type: "builds";
-      }
-    | {
-          type: "lolalytics";
       };
 
 function createDraftViewContext() {

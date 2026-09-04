@@ -9,16 +9,15 @@ import {
 } from "solid-js";
 import { analyzeBuild } from "@draftgap/core/src/builds/analysis";
 import { fetchBuildData } from "@draftgap/core/src/builds/data";
-import {
-    PartialBuildDataset,
-    FullBuildDataset,
-} from "@draftgap/core/src/models/build/BuildDataset";
 import { useDraft } from "./DraftContext";
 import { Team } from "@draftgap/core/src/models/Team";
 import { BuildEntity } from "@draftgap/core/src/models/build/BuildEntity";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
 import { useDraftView } from "./DraftViewContext";
+import { useMedia } from "../hooks/useMedia";
+import { fetchDesktopBuild, fetchDesktopItemSets } from "../utils/builds";
+import { useUser } from "./UserContext";
 
 export function createBuildContext() {
     const { allyTeam, opponentTeam } = useDraft();
@@ -26,6 +25,8 @@ export function createBuildContext() {
     const { allyTeamComp, opponentTeamComp, draftAnalysisConfig } =
         useDraftAnalysis();
     const { currentDraftView } = useDraftView();
+    const { isDesktop } = useMedia();
+    const { config } = useUser();
 
     const [buildPick, _setBuildPick] = createSignal<{
         team: Team;
@@ -42,8 +43,8 @@ export function createBuildContext() {
             index: pick?.index,
             champion_key: pick ? teamPicks[pick!.index].championKey : undefined,
             champion_name: pick
-                ? dataset()!.championData[teamPicks[pick!.index].championKey!]
-                      .name
+                ? dataset()?.championData[teamPicks[pick.index].championKey!]
+                      ?.name
                 : undefined,
             role: pick
                 ? [...teamComp!.entries()].find(
@@ -105,24 +106,21 @@ export function createBuildContext() {
     const query = createQuery(() => ({
         queryKey: [
             "build",
+            config.lolalyticsTimeRange,
             championKey(),
             championRole(),
             theirTeamComp() ? Object.fromEntries(theirTeamComp()!) : undefined,
             dataset(),
         ],
-        queryFn: async (ctx) => {
-            if (championKey() === undefined || !theirTeamComp() || !dataset()) {
+        queryFn: async () => {
+            if (
+                !isDesktop ||
+                championKey() === undefined ||
+                championRole() === undefined ||
+                !theirTeamComp() ||
+                !dataset()
+            ) {
                 return null;
-            }
-
-            const cached = queryClient.getQueryCache().find({
-                queryKey: ctx.queryKey,
-            });
-            if (cached?.state?.data && cached.state.error == null) {
-                return cached.state.data as [
-                    PartialBuildDataset,
-                    FullBuildDataset,
-                ];
             }
 
             return await fetchBuildData(
@@ -131,15 +129,26 @@ export function createBuildContext() {
                 championKey()!,
                 championRole()!,
                 theirTeamComp()!,
+                fetchDesktopBuild,
+                fetchDesktopItemSets,
+                config.lolalyticsTimeRange,
             );
         },
         refetchInterval: false,
         refetchOnMount: false,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
-        retry: 1,
+        staleTime: 1000 * 60 * 60,
+        retry: false,
         get enabled() {
-            return buildPick() != null && currentDraftView().type === "builds";
+            return (
+                isDesktop &&
+                buildPick() != null &&
+                championRole() !== undefined &&
+                dataset() !== undefined &&
+                theirTeamComp() !== undefined &&
+                currentDraftView().type === "builds"
+            );
         },
     }));
     createEffect(() => {
@@ -148,8 +157,8 @@ export function createBuildContext() {
         }
     });
 
-    const partialBuildDataset = () => query.data?.[0];
-    const fullBuildDataset = () => query.data?.[1];
+    const partialBuildDataset = () => query.data?.partialDataset;
+    const fullBuildDataset = () => query.data?.fullDataset;
 
     (window as any).DRAFTGAP_DEBUG.fullBuildDataset = fullBuildDataset;
 
@@ -162,7 +171,8 @@ export function createBuildContext() {
         return analyzeBuild(
             dataset()!,
             dataset30Days()!,
-            ...query.data,
+            query.data.partialDataset,
+            query.data.fullDataset,
             draftAnalysisConfig(),
         );
     });

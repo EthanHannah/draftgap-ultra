@@ -521,6 +521,9 @@ export default function SettingsDialog() {
                 <h3 class="text-3xl uppercase">Misc</h3>
                 <div class="flex flex-col gap-1 mt-2">
                     <span class="text-lg uppercase">Lolalytics time range</span>
+                    <p class="text-sm text-neutral-400">
+                        Applies to Builds recommendations and Lolalytics links.
+                    </p>
                     <ButtonGroup
                         options={
                             [

@@ -62,7 +62,9 @@ function getSkillLevelStats(
         skill: Skill;
     },
 ) {
-    return data.skills.level[skill.level][skill.skill] ?? { wins: 0, games: 0 };
+    return (
+        data.skills.level[skill.level]?.[skill.skill] ?? { wins: 0, games: 0 }
+    );
 }
 
 function getSkillOrderStats(data: PartialBuildDataset, skillOrder: SkillOrder) {

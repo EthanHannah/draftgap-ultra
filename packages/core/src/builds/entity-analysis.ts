@@ -40,7 +40,13 @@ export type EntityStats = {
 export type EntityStatsGetter<T> = (
     dataset: PartialBuildDataset,
     entity: T,
-) => EntityStats;
+) => EntityStats | undefined;
+
+function getWinrate(stats: EntityStats | undefined, fallback: number) {
+    if (!stats || stats.games <= 0) return fallback;
+    // A finite rating is needed even for tiny samples with zero losses or wins.
+    return Math.min(1 - 1e-6, Math.max(1e-6, stats.wins / stats.games));
+}
 
 export function analyzeEntity<T>(
     partialBuildDataset: PartialBuildDataset,
@@ -82,19 +88,23 @@ export function analyzeBaseEntity<T>(
 ) {
     const priorGames = buildPriorGamesByRiskLevel[config.riskLevel];
 
-    const championWinrate =
-        partialBuildDataset.wins / partialBuildDataset.games;
+    const championWinrate = getWinrate(partialBuildDataset, 0.5);
 
     const previousEntityStats = getStats(fullBuildDataset, entity);
-    const previousEntityWinrate =
-        previousEntityStats.wins / previousEntityStats.games;
-    const currentEntityStats = getStats(partialBuildDataset, entity);
+    const previousEntityWinrate = getWinrate(
+        previousEntityStats,
+        championWinrate,
+    );
+    const currentEntityStats = getStats(partialBuildDataset, entity) ?? {
+        wins: 0,
+        games: 0,
+    };
 
     const entityStats = addStats(currentEntityStats, {
         wins: priorGames * previousEntityWinrate,
         games: priorGames,
     });
-    const entityWinrate = entityStats.wins / entityStats.games;
+    const entityWinrate = getWinrate(entityStats, championWinrate);
     const entityRating = winrateToRating(entityWinrate);
 
     const rating = entityRating - winrateToRating(championWinrate);
@@ -144,31 +154,38 @@ export function analyzeEntityMatchup<T>(
     const priorGames = buildPriorGamesByRiskLevel[config.riskLevel];
 
     // Calculate entity rating
-    const championWinrate = fullBuildDataset.wins / fullBuildDataset.games;
+    const championWinrate = getWinrate(fullBuildDataset, 0.5);
     const championWithEntityStats = getStats(fullBuildDataset, entity);
-    const championWithEntityWinrate =
-        championWithEntityStats.wins / championWithEntityStats.games;
+    const championWithEntityWinrate = getWinrate(
+        championWithEntityStats,
+        championWinrate,
+    );
 
     const entityRating =
         winrateToRating(championWithEntityWinrate) -
         winrateToRating(championWinrate);
 
     // Calculate entity rating in matchup
-    const matchupWinrate = matchup.wins / matchup.games;
+    const matchupWinrate = getWinrate(matchup, championWinrate);
     const matchupRating = winrateToRating(matchupWinrate);
     const expectedWithEntityMatchupRating = matchupRating + entityRating;
     const expectedWithEntityMatchupWinrate = ratingToWinrate(
         expectedWithEntityMatchupRating,
     );
 
-    const rawMatchupWithEntityStats = getStats(matchup, entity);
+    const rawMatchupWithEntityStats = getStats(matchup, entity) ?? {
+        wins: 0,
+        games: 0,
+    };
 
     const matchupWithEntityStats = addStats(rawMatchupWithEntityStats, {
         wins: priorGames * expectedWithEntityMatchupWinrate,
         games: priorGames,
     });
-    const matchupWithEntityWinrate =
-        matchupWithEntityStats.wins / matchupWithEntityStats.games;
+    const matchupWithEntityWinrate = getWinrate(
+        matchupWithEntityStats,
+        expectedWithEntityMatchupWinrate,
+    );
     const matchupWithEntityRating = winrateToRating(matchupWithEntityWinrate);
     const entityRatingInMatchup = matchupWithEntityRating - matchupRating;
 
@@ -183,8 +200,10 @@ export function analyzeEntityMatchup<T>(
         wins:
             ratingToWinrate(
                 winrateToRating(
-                    rawMatchupWithEntityStats.wins /
-                        rawMatchupWithEntityStats.games,
+                    getWinrate(
+                        rawMatchupWithEntityStats,
+                        expectedWithEntityMatchupWinrate,
+                    ),
                 ) - expectedWithEntityMatchupRating,
             ) * rawMatchupWithEntityStats.games,
         raw: {

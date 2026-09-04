@@ -1,48 +1,58 @@
-import { Component, Match, Switch } from "solid-js";
-import { RuneTable } from "./RuneTable";
+import { Component, For, Match, Show, Switch } from "solid-js";
 import { useBuild } from "../../../contexts/BuildContext";
-import { BootsStats } from "./BootsStats";
-import { ItemStats } from "./ItemStats";
-import { StarterItemStats } from "./StarterItemStats";
-import { SummonerSpellsStats } from "./SummonerSpellsStats";
-import { SkillStats } from "./SkillStats";
+import { Button } from "../../common/Button";
+import { RecommendedBuild } from "./RecommendedBuild";
 
 export const BuildView: Component = () => {
-    const { query, buildAnalysisResult } = useBuild();
+    const { query, buildAnalysisResult, championRole } = useBuild();
 
     return (
         <>
             <Switch>
+                <Match when={championRole() === undefined}>
+                    <div class="text-neutral-400 text-center p-8">
+                        Assign this champion a role to view builds.
+                    </div>
+                </Match>
                 <Match when={query.isLoading}>
                     <div class="text-neutral-50 text-2xl text-center grid place-items-center h-full">
                         Loading...
                     </div>
                 </Match>
                 <Match when={query.isError}>
-                    <div class="text-red-500 text-2xl text-center grid place-items-center h-full">
-                        Error while fetching build data
+                    <div class="text-center flex flex-col items-center justify-center gap-4 h-full">
+                        <p class="text-red-400">
+                            {query.error instanceof Error
+                                ? query.error.message
+                                : "Error while fetching build data"}
+                        </p>
+                        <Button onClick={() => void query.refetch()}>
+                            Retry
+                        </Button>
                     </div>
                 </Match>
-                <Match when={query.isSuccess && buildAnalysisResult}>
-                    <div class="flex flex-col gap-20">
-                        <div class="flex flex-col gap-8">
-                            <h2 class="uppercase text-2xl font-semibold leading-none text-center">
-                                Pre-game
-                            </h2>
-                            {/* <RecommendedBuild /> */}
-                            <RuneTable />
-                            <SummonerSpellsStats />
-                        </div>
-                        <div class="flex flex-col gap-8">
-                            <h2 class="uppercase text-2xl font-semibold leading-none text-center">
-                                In-game
-                            </h2>
-                            <StarterItemStats />
-                            <SkillStats />
-                            {/* <ItemSetStats /> */}
-                            <BootsStats />
-                            <ItemStats />
-                        </div>
+                <Match when={query.isSuccess && buildAnalysisResult()}>
+                    <div class="flex flex-col gap-6">
+                        <Show when={query.data?.warnings.length}>
+                            <div
+                                class="rounded-md border border-amber-800 bg-amber-950/20 p-4 text-amber-200 text-sm"
+                                role="status"
+                            >
+                                <For each={query.data?.warnings}>
+                                    {(warning) => <p>{warning}</p>}
+                                </For>
+                                <button
+                                    class="underline mt-2 disabled:opacity-50"
+                                    disabled={query.isFetching}
+                                    onClick={() => void query.refetch()}
+                                >
+                                    {query.isFetching
+                                        ? "Retrying…"
+                                        : "Retry missing data"}
+                                </button>
+                            </div>
+                        </Show>
+                        <RecommendedBuild />
                     </div>
                 </Match>
             </Switch>

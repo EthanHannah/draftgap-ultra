@@ -9,6 +9,21 @@ const CLIENT_ROLES: Record<string, Role | undefined> = {
     utility: Role.Support,
 };
 
+export function getLockedBuildPick(
+    previous: ReturnType<typeof getLocalLockedPick>,
+    next: ReturnType<typeof getLocalLockedPick>,
+    isDesktop: boolean,
+) {
+    if (!isDesktop || !next) return undefined;
+    // Do not steal navigation on every client poll after the user changes tabs.
+    if (
+        previous?.championKey === next.championKey &&
+        previous.index === next.index
+    )
+        return undefined;
+    return { team: "ally" as const, index: next.index };
+}
+
 export function getLocalLockedPick(session: LolChampSelectChampSelectSession) {
     const index = session.myTeam.findIndex(
         (player) => player.cellId === session.localPlayerCellId,

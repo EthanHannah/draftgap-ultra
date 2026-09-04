@@ -21,6 +21,12 @@ Some of the new features added to this fork:
   - A smaller enemy-response component rewards sustained damage into frontline, defensive tools into engage, and answers to waveclear-heavy teams; it scales with known enemy picks and stays within the same Comp Δ cap
 - Flex-pick uncertainty analysis
   - This weights every valid role assignment by its likelihood instead of assuming each flexible champion is in its single most likely role
+- Desktop-only build analysis
+  - Select a drafted champion in the Builds tab to choose from supported core builds and rune options using current-patch and 30-day Lolalytics statistics
+  - Requests use a restricted native HTTPS command, not browser fetch; no web proxy or beta toggle is required
+  - Successful responses are cached for an hour. Missing patches or matchups show a warning and can be retried without discarding available builds
+  - Builds shows up to three supported three-major-item cores (with early boots when supported) and three rune options. Cores pool purchase-order variants, show the most common supported opening through the third major item (including boots bought by then, without pulling later boots forward), and require 500 observed games and 1% of eligible core observations. Combined-set estimates adjust the win rate, while only observed counts determine the ranking penalty; extrapolation never qualifies a niche build. Rune options use the same minimums and rank keystone results, displaying the source’s suggested complete page for that keystone—not claiming page-level sample counts. Core and rune recommendations follow the Lolalytics time-range setting strictly, with no automatic range fallback. Fewer than three are shown when support is insufficient. Neither list is opponent-adjusted, and matching ranks do not imply item/rune pairings.
+  - Locking in your champion in the League client opens Builds with your ally slot selected. Trades update the selection, while repeated client polls do not override manual navigation. The embedded Lolalytics tab has been removed; external stats-site links remain available.
 - Random small improvements
   - Remember hover setting, remember window size/position, etc.
 

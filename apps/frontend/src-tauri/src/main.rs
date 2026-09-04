@@ -9,6 +9,7 @@ use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::async_runtime::Mutex;
+mod builds;
 mod lolalytics;
 
 struct AppState {
@@ -187,11 +188,14 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(state)
+        .manage(builds::BuildClient::new().expect("Could not build Lolalytics client"))
         .invoke_handler(tauri::generate_handler![
             get_champ_select_session,
             get_current_summoner,
             get_grid_champions,
             get_pickable_champion_ids,
+            builds::fetch_lolalytics_build,
+            builds::fetch_lolalytics_item_sets,
             lolalytics::update_lolalytics_view,
             lolalytics::close_lolalytics_view
         ])
