@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: DraftGapConfig = {
     enemySafetyPriority: 75,
     compositionInfluence: 50,
     showAdvancedWinrates: false,
+    hideLimitedEvidencePicks: false,
     language: "en_US",
 
     // MISC

@@ -46,6 +46,7 @@ function WinrateDeltaText(props: { delta: number }) {
 
     return (
         <span
+            class="suggestion-stat transition-opacity"
             classList={{
                 "text-winrate-good": roundedDelta() > 0,
                 "text-winrate-shiggo": roundedDelta() < 0,
@@ -104,6 +105,9 @@ export default function DraftTable() {
 
     const filteredSuggestions = () => {
         let filtered = suggestions();
+        if (config.hideLimitedEvidencePicks) {
+            filtered = filtered.filter((s) => s.evidence.level === "supported");
+        }
         if (!dataset()) {
             return filtered;
         }
@@ -324,7 +328,18 @@ export default function DraftTable() {
             header: "Champ",
             accessorFn: (suggestion) => suggestion.championKey,
             cell: (info) => (
-                <ChampionCell championKey={info.getValue<string>()} />
+                <ChampionCell
+                    championKey={info.getValue<string>()}
+                    subtitle={
+                        info.row.original.evidence.level === "supported"
+                            ? undefined
+                            : info.row.original.evidence.level ===
+                                "very-limited"
+                              ? "Very limited evidence"
+                              : "Limited evidence"
+                    }
+                    subtitleTitle="Evidence behind this ranking is limited by sparse data or unvalidated composition adjustments. This is not a bad-matchup warning or a probability of winning. You can still select this pick."
+                />
             ),
             sortingFn: (a, b, id) =>
                 dataset()!.championData[
@@ -567,7 +582,11 @@ export default function DraftTable() {
                     bans.find((b) => b === r.original.championKey) ||
                     !ownsChampion(r.original.championKey)
                         ? "opacity-30"
-                        : ""
+                        : r.original.evidence.level === "very-limited"
+                          ? "[&_img]:grayscale-60 [&_img]:opacity-70 [&_.suggestion-stat]:opacity-70 hover:[&_.suggestion-stat]:opacity-100 focus:[&_.suggestion-stat]:opacity-100"
+                          : r.original.evidence.level === "limited"
+                            ? "[&_img]:grayscale-30 [&_img]:opacity-85 [&_.suggestion-stat]:opacity-85 hover:[&_.suggestion-stat]:opacity-100 focus:[&_.suggestion-stat]:opacity-100"
+                            : ""
                 }
                 id="draft-table"
             />

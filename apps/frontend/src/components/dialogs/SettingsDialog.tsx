@@ -174,6 +174,28 @@ export default function SettingsDialog() {
                         })
                     }
                 />
+                <div class="flex items-center justify-between gap-8 mt-3">
+                    <div>
+                        <span class="text-lg uppercase">
+                            Hide picks with limited evidence
+                        </span>
+                        <p
+                            class="text-sm text-neutral-400"
+                            id="limited-evidence-description"
+                        >
+                            Hide recommendations marked Limited evidence or Very
+                            limited evidence.
+                        </p>
+                    </div>
+                    <Switch
+                        aria-label="Hide picks with limited evidence"
+                        aria-describedby="limited-evidence-description"
+                        checked={config.hideLimitedEvidencePicks}
+                        onChange={(checked) =>
+                            setConfig("hideLimitedEvidencePicks", checked)
+                        }
+                    />
+                </div>
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">
                         Situational adjustment

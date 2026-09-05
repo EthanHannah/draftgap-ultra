@@ -31,6 +31,7 @@ export type DraftGapConfig = {
     enemySafetyPriority: number;
     compositionInfluence: number;
     showAdvancedWinrates: boolean;
+    hideLimitedEvidencePicks: boolean;
     language: string;
 
     // MISC

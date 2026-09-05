@@ -1,4 +1,9 @@
 import {
+    EvidenceContribution,
+    getPickEvidence,
+    summarizeSuggestionEvidence,
+} from "./suggestion-evidence";
+import {
     getInteractionInfluenceWeight,
     getDuoInteractionWeight,
     getMatchupInteractionWeight,
@@ -100,6 +105,7 @@ export type ContextResult = {
 };
 
 export interface Suggestion {
+    evidence: ReturnType<typeof summarizeSuggestionEvidence>;
     championKey: string;
     role: Role;
     draftResult: DraftResult;
@@ -112,12 +118,15 @@ export interface Suggestion {
 
 type RawSuggestion = Omit<
     Suggestion,
+    | "evidence"
     | "blindabilityResult"
     | "contextResult"
     | "compositionResult"
     | "adjustedRating"
     | "adjustedWinrate"
 > & {
+    evidenceContributions: EvidenceContribution[];
+    contextEvidenceContributions: EvidenceContribution[];
     allyObservedContextRating: number;
     allyMetaContextRating: number;
     enemyObservedContextRating: number;
@@ -469,6 +478,7 @@ export function getSuggestionsWithRoleUncertainty(
                 return probabilities;
             };
 
+            const contextEvidenceContributions: EvidenceContribution[] = [];
             let synergyGap = 0;
             let synergyScore = 0;
             let allyObservedContextRating = 0;
@@ -511,6 +521,15 @@ export function getSuggestionsWithRoleUncertainty(
                     priorGames,
                     roleProbability,
                 );
+                contextEvidenceContributions.push({
+                    rating:
+                        (contextRatings.meta - contextRatings.observed) *
+                        duoInfluence,
+                    support:
+                        roleProbability * contextRatings.openConfidence +
+                        (1 - roleProbability) *
+                            contextRatings.observedConfidence,
+                });
                 allyObservedContextRating +=
                     contextRatings.observed * duoInfluence;
                 allyMetaContextRating += contextRatings.meta * duoInfluence;
@@ -595,6 +614,16 @@ export function getSuggestionsWithRoleUncertainty(
                     priorGames,
                     enemyOpenRoleProbability[opponentRole],
                 );
+                contextEvidenceContributions.push({
+                    rating:
+                        (contextRatings.meta - contextRatings.observed) *
+                        matchupRoleWeight,
+                    support:
+                        enemyOpenRoleProbability[opponentRole] *
+                            contextRatings.openConfidence +
+                        (1 - enemyOpenRoleProbability[opponentRole]) *
+                            contextRatings.observedConfidence,
+                });
                 enemyObservedContextRating +=
                     contextRatings.observed * matchupRoleWeight;
                 enemyMetaContextRating +=
@@ -746,6 +775,13 @@ export function getSuggestionsWithRoleUncertainty(
                 championKey,
                 role,
                 draftResult,
+                evidenceContributions: getPickEvidence(
+                    draftResults,
+                    championKey,
+                    priorGames,
+                    config.championWinrateInfluence > 0,
+                ),
+                contextEvidenceContributions,
                 allyObservedContextRating,
                 allyMetaContextRating,
                 enemyObservedContextRating,
@@ -896,6 +932,32 @@ export function getSuggestionsWithRoleUncertainty(
         const finalAdjustedRating = winrateToRating(finalAdjustedWinrate);
 
         return {
+            evidence: summarizeSuggestionEvidence([
+                ...suggestion.evidenceContributions,
+                ...suggestion.contextEvidenceContributions.map((row) => ({
+                    ...row,
+                    rating: row.rating * contextWeight,
+                })),
+                {
+                    rating:
+                        synergyRating *
+                        allyFitShare *
+                        2 *
+                        getWeight(config.blindabilityWeight),
+                    support: suggestion.synergyConfidence,
+                },
+                {
+                    rating:
+                        matchupRating *
+                        enemySafetyShare *
+                        2 *
+                        getWeight(config.blindabilityWeight),
+                    support: suggestion.matchupConfidence,
+                },
+                // Composition is a hand-authored heuristic with no measured sample support.
+                // It must not make an otherwise uncertain pick look well established.
+                { rating: finalAdjustedRating - adjustedRating, support: 0 },
+            ]),
             championKey: suggestion.championKey,
             role: suggestion.role,
             draftResult: suggestion.draftResult,

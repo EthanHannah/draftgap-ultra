@@ -9,6 +9,8 @@ interface Props {
     championKey: string;
     nameMaxLength?: number;
     hideName?: boolean;
+    subtitle?: string;
+    subtitleTitle?: string;
 }
 
 export default function ChampionCell(props: Props) {
@@ -22,11 +24,21 @@ export default function ChampionCell(props: Props) {
         <div class="flex items-center gap-2">
             <ChampionIcon championKey={props.championKey} size={36} />
             <Show when={!props.hideName}>
-                <span class="uppercase truncate">
-                    {props.nameMaxLength
-                        ? overflowEllipsis(name(), props.nameMaxLength)
-                        : name()}
-                </span>
+                <div class="min-w-0 flex flex-col">
+                    <span class="uppercase truncate">
+                        {props.nameMaxLength
+                            ? overflowEllipsis(name(), props.nameMaxLength)
+                            : name()}
+                    </span>
+                    <Show when={props.subtitle}>
+                        <span
+                            class="text-xs text-neutral-400 normal-case"
+                            title={props.subtitleTitle}
+                        >
+                            {props.subtitle}
+                        </span>
+                    </Show>
+                </div>
             </Show>
         </div>
     );
