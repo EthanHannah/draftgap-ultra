@@ -6,7 +6,7 @@ import {
     useContext,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { DEFAULT_ROLE_WEIGHTS, Role } from "@draftgap/core/src/models/Role";
+import { Role } from "@draftgap/core/src/models/Role";
 import {
     DraftGapConfig,
     DEFAULT_RECOMMENDATION_MIN_GAMES,
@@ -17,10 +17,10 @@ type FavouritePick = `${string}:${Role}`;
 const DEFAULT_CONFIG: DraftGapConfig = {
     // DRAFT CONFIG
     championWinrateInfluence: 100,
+    matchupInfluence: 100,
+    duoInfluence: 100,
     riskLevel: "low",
     minGames: DEFAULT_RECOMMENDATION_MIN_GAMES,
-    matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
-    duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
     analyzeHovers: false,
 
     // UI
@@ -54,9 +54,14 @@ function createConfig() {
         synergyBlindabilityWeight?: number;
         matchupBlindabilityWeight?: number;
         interactionMinGames?: number;
+        matchupRoleWeights?: unknown;
+        duoRoleWeights?: unknown;
     };
     // Interaction eligibility is fixed in the scoring model, not a preference.
     delete storedConfig.interactionMinGames;
+    // Retired sliders must not override the fixed role-pair defaults.
+    delete storedConfig.matchupRoleWeights;
+    delete storedConfig.duoRoleWeights;
     const {
         ignoreChampionWinrates,
         synergyBlindabilityWeight,

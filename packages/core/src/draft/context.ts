@@ -2,6 +2,9 @@ type ContextInteraction = {
     rating: number;
     games: number;
     metaWeight: number;
+    // Unconditional role frequency limits support: a forecast favoring observed
+    // pairs must not make a poorly covered interaction pool look well sampled.
+    coverageWeight?: number;
     available: boolean;
 };
 
@@ -11,13 +14,15 @@ export function getContextRatings(
     openRoleProbability: number,
 ) {
     // Historical context uses pair-game frequencies; the target context uses
-    // role pick volumes among champions still available in the draft.
+    // forecast pick probabilities among champions still available in the draft.
     let observedWeight = 0;
     let observedRating = 0;
     let observedSupport = 0;
     let metaWeight = 0;
     let metaRating = 0;
     let metaSupport = 0;
+    let coverageWeight = 0;
+    let coverageSupport = 0;
 
     for (const row of interactions) {
         if (
@@ -45,6 +50,15 @@ export function getContextRatings(
             metaRating += row.rating * row.metaWeight;
             metaSupport += support * row.metaWeight;
         }
+        const baselineWeight = row.coverageWeight ?? row.metaWeight;
+        if (
+            row.available &&
+            Number.isFinite(baselineWeight) &&
+            baselineWeight > 0
+        ) {
+            coverageWeight += baselineWeight;
+            coverageSupport += support * baselineWeight;
+        }
     }
 
     const rawObserved =
@@ -52,7 +66,10 @@ export function getContextRatings(
     const rawMeta = metaWeight > 0 ? metaRating / metaWeight : 0;
     const observedConfidence =
         observedWeight > 0 ? observedSupport / observedWeight : 0;
-    const metaConfidence = metaWeight > 0 ? metaSupport / metaWeight : 0;
+    const metaConfidence = Math.min(
+        metaWeight > 0 ? metaSupport / metaWeight : 0,
+        coverageWeight > 0 ? coverageSupport / coverageWeight : 0,
+    );
     // A conservative coverage multiplier, not a statistical confidence interval.
     // Scale the entire open-slot contrast by the weaker mix so differing sample
     // sizes cannot manufacture a correction between otherwise equal means.

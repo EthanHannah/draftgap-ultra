@@ -1,3 +1,7 @@
+import {
+    getTeamDuoInteractionWeight,
+    getMatchupInteractionWeight,
+} from "./role-influence";
 import { describe, expect, test } from "bun:test";
 import {
     analyzeChampions,
@@ -11,7 +15,7 @@ import {
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { ChampionData } from "../models/dataset/ChampionData";
 import { Dataset } from "../models/dataset/Dataset";
-import { DEFAULT_ROLE_WEIGHTS, Role, RoleWeights, ROLES } from "../models/Role";
+import { Role, ROLES } from "../models/Role";
 
 function createChampion(key: string): ChampionData {
     return {
@@ -83,109 +87,83 @@ function createDataset() {
     } satisfies Dataset;
 }
 
-function weights(top: number, jungle: number): RoleWeights {
-    return {
-        ...DEFAULT_ROLE_WEIGHTS,
-        [Role.Top]: top,
-        [Role.Jungle]: jungle,
-    };
-}
-
-describe("role influence weights", () => {
-    const team = new Map([
-        [Role.Top, "top"],
-        [Role.Jungle, "jungle"],
-    ]);
-
-    test("disables duo ratings when either role has zero influence", () => {
+describe("fixed role influence", () => {
+    test("candidate perspective affects only its pairs and is independent of enumeration order", () => {
         const dataset = createDataset();
-        const defaultRating = analyzeDuos(dataset, team, 0).totalRating;
-        const zeroRating = analyzeDuos(
+        const team = new Map([
+            [Role.Top, "top"],
+            [Role.Jungle, "jungle"],
+        ]);
+        const raw = analyzeDuo(
             dataset,
-            team,
-            0,
-            weights(0, 100),
-        ).totalRating;
-
-        expect(defaultRating).not.toBe(0);
-        expect(zeroRating).toBe(0);
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
+            1000,
+        );
+        expect(
+            analyzeDuos(dataset, team, 1000, Role.Jungle).totalRating,
+        ).toBeCloseTo(raw.rating);
+        expect(
+            analyzeDuos(dataset, team, 1000, Role.Top).totalRating,
+        ).toBeCloseTo(raw.rating);
+        expect(
+            analyzeDuos(
+                dataset,
+                new Map([...team].reverse()),
+                1000,
+                Role.Jungle,
+            ).totalRating,
+        ).toBeCloseTo(raw.rating);
+        // An unrelated recommendation must not reweight already-known duos.
+        expect(
+            analyzeDuos(dataset, team, 1000, Role.Support).totalRating,
+        ).toBeCloseTo(analyzeDuos(dataset, team, 1000).totalRating);
     });
 
-    test("applies matchup influence to the enemy role only", () => {
+    test("weights known duos once while leaving standalone pair analysis raw", () => {
+        const dataset = createDataset();
+        const raw = analyzeDuo(
+            dataset,
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
+            0,
+        );
+        const team = new Map([
+            [Role.Top, "top"],
+            [Role.Jungle, "jungle"],
+        ]);
+        const result = analyzeDuos(dataset, team, 0);
+        expect(result.totalRating).toBeCloseTo(
+            raw.rating * getTeamDuoInteractionWeight(Role.Top, Role.Jungle),
+        );
+        expect(
+            analyzeDuos(dataset, new Map([...team].reverse()), 0).totalRating,
+        ).toBeCloseTo(result.totalRating);
+    });
+
+    test("weights known matchups once and preserves team-side symmetry", () => {
         const dataset = createDataset();
         const ally = new Map([[Role.Top, "top"]]);
         const enemy = new Map([[Role.Jungle, "jungle"]]);
-        const defaultRating = analyzeMatchups(
+        const raw = analyzeMatchup(
             dataset,
-            ally,
-            enemy,
+            Role.Top,
+            "top",
+            Role.Jungle,
+            "jungle",
             0,
-        ).totalRating;
-        const allyRoleDisabledRating = analyzeMatchups(
-            dataset,
-            ally,
-            enemy,
-            0,
-            weights(0, 100),
-        ).totalRating;
-        const enemyRoleDisabledRating = analyzeMatchups(
-            dataset,
-            ally,
-            enemy,
-            0,
-            weights(100, 0),
-        ).totalRating;
-
-        expect(defaultRating).not.toBe(0);
-        expect(allyRoleDisabledRating).toBeCloseTo(defaultRating);
-        expect(enemyRoleDisabledRating).toBe(0);
-    });
-
-    test("only includes enabled enemy roles in matchup analysis", () => {
-        const dataset = createDataset();
-        const ally = new Map([[Role.Top, "top"]]);
-        const enemy = new Map([
-            [Role.Jungle, "jungle"],
-            [Role.Support, "support"],
-        ]);
-        const supportOnlyWeights = {
-            ...DEFAULT_ROLE_WEIGHTS,
-            [Role.Top]: 0,
-            [Role.Jungle]: 0,
-            [Role.Middle]: 0,
-            [Role.Bottom]: 0,
-        };
-        const result = analyzeMatchups(
-            dataset,
-            ally,
-            enemy,
-            0,
-            supportOnlyWeights,
         );
-
+        const result = analyzeMatchups(dataset, ally, enemy, 0);
+        expect(result.totalRating).toBeCloseTo(
+            raw.rating * getMatchupInteractionWeight(Role.Top, Role.Jungle),
+        );
         expect(
-            result.matchupResults.find(
-                (matchup) => matchup.roleB === Role.Jungle,
-            )?.rating,
-        ).toBe(0);
-        expect(
-            result.matchupResults.find(
-                (matchup) => matchup.roleB === Role.Support,
-            )?.rating,
-        ).not.toBe(0);
-    });
-
-    test("averages non-zero duo role influence weights", () => {
-        const dataset = createDataset();
-        const defaultRating = analyzeDuos(dataset, team, 0).totalRating;
-        const threeQuarterRating = analyzeDuos(
-            dataset,
-            team,
-            0,
-            weights(50, 100),
-        ).totalRating;
-
-        expect(threeQuarterRating).toBeCloseTo(defaultRating * 0.75);
+            analyzeMatchups(dataset, enemy, ally, 0).totalRating,
+        ).toBeCloseTo(-result.totalRating);
     });
 });
 
@@ -318,10 +296,10 @@ describe("flex-pick uncertainty", () => {
         jungleStats.wins = 40;
         const config = {
             championWinrateInfluence: 100,
+            matchupInfluence: 100,
+            duoInfluence: 100,
             riskLevel: "medium" as const,
             minGames: 0,
-            matchupRoleWeights: DEFAULT_ROLE_WEIGHTS,
-            duoRoleWeights: DEFAULT_ROLE_WEIGHTS,
         };
         const top = analyzeDraft(
             dataset,

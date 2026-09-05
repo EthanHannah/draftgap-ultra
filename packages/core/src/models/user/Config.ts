@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../risk/risk-level";
-import { RoleWeights } from "../Role";
 
 export const DEFAULT_RECOMMENDATION_MIN_GAMES = 5000;
 
@@ -17,10 +16,10 @@ type DraftTablePlacement =
 export type DraftGapConfig = {
     // DRAFT ANALYSIS
     championWinrateInfluence: number;
+    matchupInfluence: number;
+    duoInfluence: number;
     riskLevel: RiskLevel;
     minGames: number;
-    matchupRoleWeights: RoleWeights;
-    duoRoleWeights: RoleWeights;
     analyzeHovers: boolean;
 
     // DRAFT SUGGESTIONS

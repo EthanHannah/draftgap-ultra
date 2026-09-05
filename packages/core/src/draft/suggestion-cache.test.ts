@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Dataset } from "../models/dataset/Dataset";
-import { DEFAULT_ROLE_WEIGHTS, Role } from "../models/Role";
+import { Role } from "../models/Role";
 import { createSuggestionCache } from "./suggestion-cache";
 import { Suggestion, SuggestionConfig } from "./suggestions";
 
@@ -23,10 +23,11 @@ function setup() {
     const cache = createSuggestionCache(calculate);
     const config: SuggestionConfig = {
         championWinrateInfluence: 100,
+        matchupInfluence: 100,
+        duoInfluence: 100,
         riskLevel: "low",
         minGames: 5000,
-        matchupRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
-        duoRoleWeights: { ...DEFAULT_ROLE_WEIGHTS },
+
         contextInfluence: 100,
         blindabilityWeight: 50,
         enemySafetyPriority: 75,
@@ -67,9 +68,9 @@ describe("suggestion cache", () => {
         run();
         bans.add("banned");
         run();
-        config.matchupRoleWeights[Role.Top] = 0;
+        config.matchupInfluence = 0;
         run();
-        config.duoRoleWeights[Role.Support] = 50;
+        config.duoInfluence = 25;
         run();
         config.riskLevel = "high";
         run();

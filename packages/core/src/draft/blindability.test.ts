@@ -74,15 +74,17 @@ describe("blindability uncertainty", () => {
         expect(expandedPool.score).toBeCloseTo(sparsePool.score, 10);
     });
 
-    test("sparse teammate data does not gain a flat-profile bonus", () => {
+    test("ally downside is translation invariant and sparse evidence earns negligible certainty", () => {
         const fit = (winrate: number, games: number) =>
             getAllyBlindability([interaction(winrate, games)], prior, 1000)
                 .score;
         expect(fit(0.5, 0)).toBe(0);
         expect(fit(0.5, 1)).toBeLessThan(fit(0.5, 10000) * 0.01);
-        expect(fit(0.4, 1)).toBeLessThan(0);
-        expect(fit(0.4, 10000)).toBeLessThan(fit(0.4, 1));
-        expect(fit(0.6, 10000)).toBeGreaterThan(fit(0.5, 10000));
+        // A consistently bad teammate fit belongs to expected performance,
+        // not a second mean penalty hidden inside blindability.
+        expect(fit(0.4, 1)).toBeCloseTo(fit(0.5, 1), 10);
+        expect(fit(0.4, 10000)).toBeCloseTo(fit(0.5, 10000), 10);
+        expect(fit(0.6, 10000)).toBeCloseTo(fit(0.5, 10000), 10);
     });
 
     test("tiny noisy samples do not inflate the learned role baseline", () => {

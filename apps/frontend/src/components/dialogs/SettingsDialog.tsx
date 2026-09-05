@@ -22,35 +22,19 @@ import {
     DialogTrigger,
 } from "../common/Dialog";
 import { FAQDialog } from "./FAQDialog";
-import { displayNameByRole, Role, ROLES } from "@draftgap/core/src/models/Role";
-import { RoleIcon } from "../icons/roles/RoleIcon";
-
-type RoleWeightType = "matchupRoleWeights" | "duoRoleWeights";
 
 export default function SettingsDialog() {
     const { isDesktop } = useMedia();
     const { config, setConfig } = useUser();
     const [draftWeights, setDraftWeights] = createStore({
         championWinrateInfluence: config.championWinrateInfluence,
-        matchupRoleWeights: { ...config.matchupRoleWeights },
-        duoRoleWeights: { ...config.duoRoleWeights },
+        matchupInfluence: config.matchupInfluence,
+        duoInfluence: config.duoInfluence,
         contextInfluence: config.contextInfluence,
         blindabilityWeight: config.blindabilityWeight,
         enemySafetyPriority: config.enemySafetyPriority,
         compositionInfluence: config.compositionInfluence,
     });
-
-    function updateRoleWeight(type: RoleWeightType, role: Role, value: number) {
-        setDraftWeights(type, role, value);
-    }
-
-    function saveRoleWeight(type: RoleWeightType, role: Role, value: number) {
-        if (type === "matchupRoleWeights") {
-            setConfig("matchupRoleWeights", role, value);
-        } else {
-            setConfig("duoRoleWeights", role, value);
-        }
-    }
 
     const riskLevelOptions: ButtonGroupOption<RiskLevel>[] = RiskLevel.map(
         (level) => ({
@@ -125,6 +109,49 @@ export default function SettingsDialog() {
                         }
                     />
                 </label>
+                <For
+                    each={
+                        [
+                            {
+                                key: "matchupInfluence",
+                                label: "Matchup influence",
+                            },
+                            { key: "duoInfluence", label: "Duo influence" },
+                        ] as const
+                    }
+                >
+                    {(setting) => (
+                        <label class="mt-2 grid gap-1">
+                            <span class="flex items-center justify-between gap-4 text-lg uppercase">
+                                <span>{setting.label}</span>
+                                <span class="tabular-nums">
+                                    {draftWeights[setting.key]}%
+                                </span>
+                            </span>
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="5"
+                                class="w-full accent-secondary"
+                                value={draftWeights[setting.key]}
+                                aria-label={setting.label}
+                                onInput={(event) =>
+                                    setDraftWeights(
+                                        setting.key,
+                                        event.currentTarget.valueAsNumber,
+                                    )
+                                }
+                                onChange={(event) =>
+                                    setConfig(
+                                        setting.key,
+                                        event.currentTarget.valueAsNumber,
+                                    )
+                                }
+                            />
+                        </label>
+                    )}
+                </For>
                 <div class="flex items-center mt-1 mb-1 gap-1">
                     <span class="text-lg uppercase block">Risk level</span>
                     <Dialog>
@@ -148,109 +175,6 @@ export default function SettingsDialog() {
                     }
                 />
                 <fieldset class="mt-5">
-                    <legend class="text-lg uppercase">Role influence</legend>
-                    <p class="text-sm opacity-60">
-                        Matchup weights apply to the opponent's role, so 0%
-                        ignores that enemy role. Duo interactions use the
-                        average of both ally role weights; a 0% role disables
-                        duos involving it.
-                    </p>
-                    <div class="mt-3 grid grid-cols-[minmax(6.5rem,auto)_minmax(0,1fr)_minmax(0,1fr)] items-end gap-x-4 gap-y-3">
-                        <span class="text-sm uppercase opacity-60">Role</span>
-                        <span class="text-center text-sm uppercase opacity-60">
-                            Matchup
-                        </span>
-                        <span class="text-center text-sm uppercase opacity-60">
-                            Duo
-                        </span>
-                        <For each={ROLES}>
-                            {(role) => (
-                                <>
-                                    <div class="flex items-center gap-2">
-                                        <RoleIcon role={role} class="h-7 w-7" />
-                                        <span class="uppercase">
-                                            {displayNameByRole[role]}
-                                        </span>
-                                    </div>
-                                    <label class="grid gap-1">
-                                        <span class="text-center text-sm tabular-nums opacity-70">
-                                            {
-                                                draftWeights.matchupRoleWeights[
-                                                    role
-                                                ]
-                                            }
-                                            %
-                                        </span>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max="200"
-                                            step="5"
-                                            class="w-full accent-secondary"
-                                            value={
-                                                draftWeights.matchupRoleWeights[
-                                                    role
-                                                ]
-                                            }
-                                            aria-label={`${displayNameByRole[role]} matchup influence`}
-                                            onInput={(event) =>
-                                                updateRoleWeight(
-                                                    "matchupRoleWeights",
-                                                    role,
-                                                    event.currentTarget
-                                                        .valueAsNumber,
-                                                )
-                                            }
-                                            onChange={(event) =>
-                                                saveRoleWeight(
-                                                    "matchupRoleWeights",
-                                                    role,
-                                                    event.currentTarget
-                                                        .valueAsNumber,
-                                                )
-                                            }
-                                        />
-                                    </label>
-                                    <label class="grid gap-1">
-                                        <span class="text-center text-sm tabular-nums opacity-70">
-                                            {draftWeights.duoRoleWeights[role]}%
-                                        </span>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max="200"
-                                            step="5"
-                                            class="w-full accent-secondary"
-                                            value={
-                                                draftWeights.duoRoleWeights[
-                                                    role
-                                                ]
-                                            }
-                                            aria-label={`${displayNameByRole[role]} duo influence`}
-                                            onInput={(event) =>
-                                                updateRoleWeight(
-                                                    "duoRoleWeights",
-                                                    role,
-                                                    event.currentTarget
-                                                        .valueAsNumber,
-                                                )
-                                            }
-                                            onChange={(event) =>
-                                                saveRoleWeight(
-                                                    "duoRoleWeights",
-                                                    role,
-                                                    event.currentTarget
-                                                        .valueAsNumber,
-                                                )
-                                            }
-                                        />
-                                    </label>
-                                </>
-                            )}
-                        </For>
-                    </div>
-                </fieldset>
-                <fieldset class="mt-5">
                     <legend class="text-lg uppercase">
                         Situational adjustment
                     </legend>
@@ -258,10 +182,11 @@ export default function SettingsDialog() {
                         Situational adjustment corrects a champion's base win
                         rate when players usually select it with unusually
                         favorable teammates or opponents. Unrevealed slots use
-                        the normal mix of available champions, while revealed
-                        picks use their direct interactions. Poorly supported
-                        corrections shrink toward zero. Values above 100%
-                        amplify both positive and negative corrections.
+                        likely picks based on the current draft, falling back
+                        toward ordinary pick rates when evidence is limited.
+                        Revealed picks use their direct interactions. Poorly
+                        supported corrections shrink toward zero. Values above
+                        100% amplify both positive and negative corrections.
                     </p>
                     <label class="mt-3 grid gap-1">
                         <span class="flex justify-between gap-2 text-sm uppercase">
@@ -296,22 +221,19 @@ export default function SettingsDialog() {
                 <fieldset class="mt-5">
                     <legend class="text-lg uppercase">Blindability</legend>
                     <p class="text-sm opacity-60">
-                        Blindability combines compatibility with likely unknown
-                        teammates and exposure to likely enemy counters.
-                        Teammates are weighted by pick rate. Counter likelihood
-                        blends pick rate with equal champion coverage, so niche
-                        counterpicks still matter after you reveal a pick.
-                        Counter penalties account for both estimated downside
-                        and uncertainty. Unknown interactions retain ordinary
-                        risk, learned from viable choices in the relevant roles,
-                        and give no safety or teammate-fit bonus. Evidence of
-                        safe matchups or reliable teammate fit can earn a bonus;
-                        observed counters and awkward teammates can lower the
-                        score. The selected risk level controls how strongly
-                        observations update these estimates. The direct-role
-                        opponent is primary; all four non-lane roles together
-                        receive half as much weight. Enemy safety receives more
-                        weight by default for solo queue.
+                        Blindability measures downside from unknown teammates
+                        and exposure to enemy counters. Expected teammate
+                        synergy belongs to the situational adjustment;
+                        blindability measures how far worse outcomes fall below
+                        that expectation. Both adjustments estimate likely
+                        remaining picks from the current draft and historical
+                        pair frequencies, falling back toward ordinary pick
+                        rates when evidence is limited. Pair frequencies do not
+                        establish pick order. Counter penalties include
+                        uncertainty, and missing data gives no safety bonus. The
+                        direct-role opponent remains primary, with separate
+                        weights for other role pairings. Enemy safety receives
+                        more weight by default for solo queue.
                     </p>
                     <div class="mt-3">
                         <label class="grid gap-1">

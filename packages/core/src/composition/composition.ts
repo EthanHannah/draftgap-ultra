@@ -3,8 +3,10 @@ import { Dataset } from "../models/dataset/Dataset";
 import {
     COMPOSITION_CAPABILITIES,
     CompositionCapability,
+    CompositionProfile,
     getCompositionProfile,
 } from "./profiles";
+import { getCombatProfile } from "./combat-profiles";
 
 export const COMPOSITION_DIMENSIONS = [
     "damageBalance",
@@ -30,6 +32,14 @@ export type TeamCompositionScore = {
     capabilityTotals: Record<CompositionCapability, number>;
     score: number;
     hasProfiles: boolean;
+    members: CompositionMember[];
+    plans: { engage: number; protect: number; siege: number };
+};
+
+type CompositionMember = {
+    profile: CompositionProfile;
+    combat: ReturnType<typeof getCombatProfile>;
+    damageThreat: number;
 };
 
 export type EnemyCompositionPressures = {
@@ -55,6 +65,58 @@ const ENEMY_RESPONSE_CATEGORY_WEIGHT = {
 
 function clamp(value: number, min = 0, max = 1) {
     return Math.min(max, Math.max(min, value));
+}
+
+// A primary provider contributes 0.75, leaving room for useful redundancy.
+// Squaring strengths prevents several situational tools from replacing one
+// reliable provider. This is a bounded heuristic, not a success probability.
+function getCoverage(strengths: number[]) {
+    return (
+        1 -
+        strengths.reduce(
+            (remaining, strength) =>
+                remaining * (1 - 0.75 * clamp(strength) ** 2),
+            1,
+        )
+    );
+}
+
+function getProtection(members: CompositionMember[]) {
+    const peel = getCoverage(members.map(({ profile }) => profile.peel));
+    const frontline = getCoverage(
+        members.map(({ profile }) => profile.frontline),
+    );
+    // Standing in front can help, but does not replace disengage or saves.
+    return peel + (1 - peel) * frontline * 0.15;
+}
+
+function getFightPlans(members: CompositionMember[]) {
+    const engagePairs: number[] = [];
+    const protectPairs: number[] = [];
+    const siegePairs: number[] = [];
+    for (const [index, member] of members.entries()) {
+        const allies = members.filter((_, allyIndex) => allyIndex !== index);
+        if (allies.length === 0) continue;
+        const followUp = getCoverage(
+            allies.map((ally) => ally.damageThreat * ally.combat.followUp),
+        );
+        engagePairs.push(member.profile.engage * followUp);
+        const protection = getProtection(allies);
+        protectPairs.push(
+            member.profile.sustainedDamage *
+                member.combat.rangedUptime *
+                protection,
+        );
+        siegePairs.push(
+            member.combat.siege *
+                (0.5 + 0.5 * Math.max(protection, member.combat.selfPeel)),
+        );
+    }
+    return {
+        engage: getCoverage(engagePairs),
+        protect: getCoverage(protectPairs),
+        siege: getCoverage(siegePairs),
+    };
 }
 
 export function getCompositionWinrateDelta(
@@ -117,7 +179,7 @@ function getDamageBalance(physical: number, magic: number, trueDamage: number) {
 export function getTeamCompositionScore(
     dataset: Dataset,
     team: Map<Role, string>,
-): TeamCompositionScore {
+) {
     const capabilityTotals = Object.fromEntries(
         COMPOSITION_CAPABILITIES.map((capability) => [capability, 0]),
     ) as Record<CompositionCapability, number>;
@@ -125,6 +187,7 @@ export function getTeamCompositionScore(
     let magic = 0;
     let trueDamage = 0;
     let hasProfiles = true;
+    const members: CompositionMember[] = [];
 
     for (const [role, championKey] of team) {
         const champion = dataset.championData[championKey];
@@ -144,17 +207,24 @@ export function getTeamCompositionScore(
         for (const capability of COMPOSITION_CAPABILITIES) {
             capabilityTotals[capability] += profile[capability];
         }
+        const combat = getCombatProfile(champion.id, role);
+        members.push({
+            profile,
+            combat,
+            damageThreat: Math.max(profile.sustainedDamage, combat.burstDamage),
+        });
     }
 
     const capabilityCoverage = Object.fromEntries(
         COMPOSITION_CAPABILITIES.map((capability) => [
             capability,
-            clamp(capabilityTotals[capability]),
+            getCoverage(members.map(({ profile }) => profile[capability])),
         ]),
     ) as Record<CompositionCapability, number>;
-    const fightPlan =
-        Math.max(capabilityCoverage.engage, capabilityCoverage.peel) * 0.75 +
-        Math.min(capabilityCoverage.engage, capabilityCoverage.peel) * 0.25;
+    const plans = getFightPlans(members);
+    // A coherent single plan suffices; alternative plans provide a small bonus.
+    const orderedPlans = Object.values(plans).sort((a, b) => b - a);
+    const fightPlan = orderedPlans[0] * 0.85 + orderedPlans[1] * 0.15;
     const coverage = {
         damageBalance: getDamageBalance(physical, magic, trueDamage),
         ...capabilityCoverage,
@@ -171,33 +241,63 @@ export function getTeamCompositionScore(
             0,
         ) / scoreWeight;
 
-    return { coverage, capabilityTotals, score, hasProfiles };
+    return { coverage, capabilityTotals, score, hasProfiles, members, plans };
 }
 
 export function getEnemyResponseScore(
     alliedComposition: TeamCompositionScore,
     enemyComposition: TeamCompositionScore,
-): EnemyResponseScore {
+) {
     // A single provider creates some pressure; two reliable providers reach the
     // full response target. This focuses the layer on cumulative enemy patterns.
+    const pressure = (capability: CompositionCapability) =>
+        clamp(
+            enemyComposition.members.reduce(
+                (total, { profile }) => total + profile[capability] ** 2,
+                0,
+            ) / 2,
+        );
     const pressures = {
-        frontline: clamp(enemyComposition.capabilityTotals.frontline / 2),
-        engage: clamp(enemyComposition.capabilityTotals.engage / 2),
-        peel: clamp(enemyComposition.capabilityTotals.peel / 2),
-        waveclear: clamp(enemyComposition.capabilityTotals.waveclear / 2),
+        frontline: pressure("frontline"),
+        engage: pressure("engage"),
+        peel: pressure("peel"),
+        waveclear: pressure("waveclear"),
     } satisfies EnemyCompositionPressures;
-    const antiFrontline =
-        alliedComposition.coverage.sustainedDamage * 0.75 +
-        alliedComposition.coverage.hardCrowdControl * 0.25;
-    const antiEngage =
-        alliedComposition.coverage.peel * 0.45 +
-        alliedComposition.coverage.frontline * 0.3 +
-        alliedComposition.coverage.hardCrowdControl * 0.25;
+    const tankDamage: number[] = [];
+    let protectedThreat = 0;
+    let totalThreat = 0;
+    for (const [index, member] of alliedComposition.members.entries()) {
+        const allies = alliedComposition.members.filter(
+            (_, allyIndex) => allyIndex !== index,
+        );
+        const protection = getProtection(allies);
+        const safety =
+            member.combat.selfPeel + (1 - member.combat.selfPeel) * protection;
+        // Range and personal/team protection determine whether the tank
+        // damage can be delivered. Enemy peel restricts melee access more.
+        const access =
+            member.combat.rangedUptime +
+            (1 - member.combat.rangedUptime) *
+                (0.5 + 0.5 * safety) *
+                (1 - pressures.peel * 0.35);
+        tankDamage.push(
+            member.combat.tankDamage *
+                access *
+                (1 - pressures.engage * (1 - safety) * 0.35),
+        );
+        protectedThreat += member.damageThreat * safety;
+        totalThreat += member.damageThreat;
+    }
+    const antiFrontline = getCoverage(tankDamage);
+    // Evaluate protection of the actual damage dealers, not the number of
+    // tanks/CC spells. An additional exposed carry creates additional demand.
+    const antiEngage = totalThreat > 0 ? protectedThreat / totalThreat : 0;
     const engageEffectiveness =
-        alliedComposition.coverage.engage * (1 - pressures.peel * 0.25);
-    const antiWaveclear =
-        engageEffectiveness * 0.65 +
-        alliedComposition.coverage.waveclear * 0.35;
+        alliedComposition.plans.engage * (1 - pressures.peel * 0.25);
+    const antiWaveclear = Math.max(
+        engageEffectiveness,
+        alliedComposition.plans.siege,
+    );
     const responseWeight = Object.values(ENEMY_RESPONSE_CATEGORY_WEIGHT).reduce(
         (total, weight) => total + weight,
         0,
@@ -214,7 +314,14 @@ export function getEnemyResponseScore(
                 ENEMY_RESPONSE_CATEGORY_WEIGHT.waveclear) /
         responseWeight;
     const engageIntoPeelPenalty =
-        pressures.peel * alliedComposition.coverage.engage * 0.1;
+        pressures.peel *
+        alliedComposition.plans.engage *
+        (1 -
+            Math.max(
+                alliedComposition.plans.protect,
+                alliedComposition.plans.siege,
+            )) *
+        0.1;
 
     return {
         pressures,

@@ -385,7 +385,7 @@ export default function DraftTable() {
         {
             id: "context",
             header: () => (
-                <span title="Adjustment from the champion's usual draft situations to the normal mix of available teammates and opponents">
+                <span title="Adjustment from the champion's usual draft situations to likely teammates and opponents in this draft">
                     Situational Δ
                 </span>
             ),
@@ -401,7 +401,7 @@ export default function DraftTable() {
         {
             id: "blindability",
             header: () => (
-                <span title="Adjustment for likely unknown teammates and enemy counters">
+                <span title="Adjustment for teammate downside and exposure to likely enemy counters">
                     Blind Δ
                 </span>
             ),

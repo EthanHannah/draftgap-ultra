@@ -8,7 +8,7 @@ import {
 } from "./lolalytics";
 import { analyzeBuild } from "./analysis";
 import { Dataset } from "../models/dataset/Dataset";
-import { Role, DEFAULT_ROLE_WEIGHTS } from "../models/Role";
+import { Role } from "../models/Role";
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { FullBuildSets } from "./combined-builds";
 
@@ -789,8 +789,8 @@ describe("desktop build orchestration", () => {
             riskLevel: "medium",
             minGames: 0,
             championWinrateInfluence: 100,
-            matchupRoleWeights: DEFAULT_ROLE_WEIGHTS,
-            duoRoleWeights: DEFAULT_ROLE_WEIGHTS,
+            matchupInfluence: 100,
+            duoInfluence: 100,
         });
         const check = (value: unknown) => {
             if (typeof value === "number")

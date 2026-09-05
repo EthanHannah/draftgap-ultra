@@ -17,6 +17,18 @@ const adjustment = (result: ReturnType<typeof getContextRatings>) =>
     result.meta - result.observed;
 
 describe("situational coverage", () => {
+    test("a conditional forecast cannot inflate confidence in a poorly observed pool", () => {
+        const result = getContextRatings(
+            [
+                { ...row(20, 1e7, 9), coverageWeight: 1 },
+                { ...row(0, 0, 1), coverageWeight: 99 },
+            ],
+            priorGames,
+            1,
+        );
+        expect(result.metaConfidence).toBeLessThan(0.01);
+        expect(Math.abs(adjustment(result))).toBeLessThan(0.021);
+    });
     test("missing evidence stays neutral", () => {
         for (const rows of [[], [row(0, 0, 9), row(0, 0, 1)]]) {
             for (const openProbability of [0, 0.5, 1]) {

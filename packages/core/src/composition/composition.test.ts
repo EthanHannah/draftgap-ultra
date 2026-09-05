@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { getCombatProfile, getCombatProfileIds } from "./combat-profiles";
 import { Role, ROLES } from "../models/Role";
 import { ChampionData } from "../models/dataset/ChampionData";
 import { Dataset } from "../models/dataset/Dataset";
@@ -61,6 +62,16 @@ function setDamage(
 }
 
 describe("composition profiles", () => {
+    test("uses valid champion IDs and conservative role-specific combat traits", () => {
+        expect(getMissingCompositionProfileIds(getCombatProfileIds())).toEqual(
+            [],
+        );
+        expect(getCombatProfile("Brand", Role.Support).tankDamage).toBeLessThan(
+            getCombatProfile("Brand", Role.Middle).tankDamage,
+        );
+        expect(getCombatProfile("Unknown", Role.Middle).tankDamage).toBe(0);
+    });
+
     test("covers each focused curated capability", () => {
         expect(getCompositionProfile("Alistar", Role.Support)?.frontline).toBe(
             1,
@@ -218,42 +229,125 @@ describe("team composition score", () => {
         );
     });
 
-    test("treats engage and peel as complementary fight plans", () => {
-        const dataset = createDataset(["Janna", "Malphite", "Alistar"]);
-        const peelPlan = getTeamCompositionScore(
-            dataset,
-            new Map([[Role.Support, "Janna"]]),
+    test("requires another champion to turn tools into a fight plan", () => {
+        const dataset = createDataset([
+            "Alistar",
+            "Malphite",
+            "Ahri",
+            "Janna",
+            "Jinx",
+            "Talon",
+        ]);
+        const score = (entries: [Role, string][]) =>
+            getTeamCompositionScore(dataset, new Map(entries));
+        expect(score([[Role.Support, "Alistar"]]).coverage.fightPlan).toBe(0);
+        const followUp = score([
+            [Role.Top, "Malphite"],
+            [Role.Middle, "Ahri"],
+        ]);
+        const noFollowUp = score([
+            [Role.Top, "Malphite"],
+            [Role.Support, "Alistar"],
+        ]);
+        expect(followUp.plans.engage).toBeGreaterThan(noFollowUp.plans.engage);
+        const protectCarry = score([
+            [Role.Support, "Janna"],
+            [Role.Bottom, "Jinx"],
+        ]);
+        const protectAssassin = score([
+            [Role.Support, "Janna"],
+            [Role.Middle, "Talon"],
+        ]);
+        expect(protectCarry.plans.protect).toBeGreaterThan(
+            protectAssassin.plans.protect,
         );
-        const engagePlan = getTeamCompositionScore(
-            dataset,
-            new Map([[Role.Top, "Malphite"]]),
-        );
-        const completePlan = getTeamCompositionScore(
-            dataset,
-            new Map([[Role.Support, "Alistar"]]),
-        );
-
-        expect(peelPlan.coverage.fightPlan).toBe(0.75);
-        expect(engagePlan.coverage.fightPlan).toBe(0.75);
-        expect(completePlan.coverage.fightPlan).toBe(1);
     });
 
-    test("caps repeated capability coverage at one", () => {
-        const dataset = createDataset(["Alistar", "Braum"]);
-        const oneFrontliner = getTeamCompositionScore(
+    test("values a reliable provider above several minor providers and retains redundancy", () => {
+        const dataset = createDataset([
+            "Alistar",
+            "Braum",
+            "Camille",
+            "LeeSin",
+            "Vi",
+            "Rakan",
+        ]);
+        const one = getTeamCompositionScore(
             dataset,
             new Map([[Role.Support, "Alistar"]]),
         );
-        const twoFrontliners = getTeamCompositionScore(
+        const two = getTeamCompositionScore(
             dataset,
             new Map([
                 [Role.Support, "Alistar"],
                 [Role.Top, "Braum"],
             ]),
         );
+        const minor = getTeamCompositionScore(
+            dataset,
+            new Map([
+                [Role.Top, "Camille"],
+                [Role.Jungle, "LeeSin"],
+                [Role.Middle, "Vi"],
+                [Role.Support, "Rakan"],
+            ]),
+        );
+        expect(one.coverage.frontline).toBeGreaterThan(
+            minor.coverage.frontline,
+        );
+        expect(two.coverage.frontline).toBeGreaterThan(one.coverage.frontline);
+        expect(two.coverage.frontline - one.coverage.frontline).toBeLessThan(
+            one.coverage.frontline,
+        );
+        expect(two.coverage.frontline).toBeLessThan(1);
+    });
 
-        expect(oneFrontliner.coverage.frontline).toBe(1);
-        expect(twoFrontliners.coverage.frontline).toBe(1);
+    test("supports a siege plan without requiring initiation", () => {
+        const dataset = createDataset(["Janna", "Xerath", "MasterYi"]);
+        const siege = getTeamCompositionScore(
+            dataset,
+            new Map([
+                [Role.Support, "Janna"],
+                [Role.Middle, "Xerath"],
+            ]),
+        );
+        const melee = getTeamCompositionScore(
+            dataset,
+            new Map([
+                [Role.Support, "Janna"],
+                [Role.Jungle, "MasterYi"],
+            ]),
+        );
+        expect(siege.coverage.engage).toBe(0);
+        expect(siege.plans.siege).toBeGreaterThan(melee.plans.siege);
+        expect(siege.coverage.fightPlan).toBeGreaterThan(0);
+    });
+
+    test("is independent of member iteration order and stays bounded", () => {
+        const dataset = createDataset([
+            "Malphite",
+            "Vi",
+            "Ahri",
+            "Jinx",
+            "Janna",
+        ]);
+        const entries: [Role, string][] = [
+            [Role.Top, "Malphite"],
+            [Role.Jungle, "Vi"],
+            [Role.Middle, "Ahri"],
+            [Role.Bottom, "Jinx"],
+            [Role.Support, "Janna"],
+        ];
+        const first = getTeamCompositionScore(dataset, new Map(entries));
+        const reversed = getTeamCompositionScore(
+            dataset,
+            new Map(entries.reverse()),
+        );
+        expect(first.score).toBeCloseTo(reversed.score);
+        for (const value of Object.values(first.coverage)) {
+            expect(value).toBeGreaterThanOrEqual(0);
+            expect(value).toBeLessThanOrEqual(1);
+        }
     });
 
     test("marks a team with an unreviewed champion as incomplete", () => {
@@ -269,6 +363,144 @@ describe("team composition score", () => {
 });
 
 describe("enemy composition response", () => {
+    test("responds to waveclear with safe siege rather than more waveclear", () => {
+        const dataset = createDataset(["Janna", "Anivia", "Xerath", "Sivir"]);
+        const enemy = getTeamCompositionScore(
+            dataset,
+            new Map([[Role.Bottom, "Sivir"]]),
+        );
+        const team = (mid: string) =>
+            getTeamCompositionScore(
+                dataset,
+                new Map([
+                    [Role.Middle, mid],
+                    [Role.Support, "Janna"],
+                ]),
+            );
+        expect(team("Anivia").coverage.waveclear).toBe(
+            team("Xerath").coverage.waveclear,
+        );
+        expect(
+            getEnemyResponseScore(team("Xerath"), enemy).score,
+        ).toBeGreaterThan(getEnemyResponseScore(team("Anivia"), enemy).score);
+    });
+
+    test("accounts for melee tank killers getting access through allied protection", () => {
+        const dataset = createDataset([
+            "MasterYi",
+            "Janna",
+            "Talon",
+            "DrMundo",
+        ]);
+        const enemy = getTeamCompositionScore(
+            dataset,
+            new Map([[Role.Top, "DrMundo"]]),
+        );
+        const response = (ally: string) =>
+            getEnemyResponseScore(
+                getTeamCompositionScore(
+                    dataset,
+                    new Map([
+                        [Role.Jungle, "MasterYi"],
+                        [Role.Support, ally],
+                    ]),
+                ),
+                enemy,
+            ).score;
+        expect(response("Janna")).toBeGreaterThan(response("Talon"));
+    });
+
+    test("retains tank-damage differences in a complete draft", () => {
+        const dataset = createDataset([
+            "Garen",
+            "Vi",
+            "Ahri",
+            "Janna",
+            "Jhin",
+            "Jinx",
+            "Vayne",
+            "Ornn",
+            "Sejuani",
+            "Braum",
+        ]);
+        const enemy = getTeamCompositionScore(
+            dataset,
+            new Map([
+                [Role.Top, "Ornn"],
+                [Role.Jungle, "Sejuani"],
+                [Role.Middle, "Ahri"],
+                [Role.Bottom, "Jinx"],
+                [Role.Support, "Braum"],
+            ]),
+        );
+        const response = (adc: string) =>
+            getEnemyResponseScore(
+                getTeamCompositionScore(
+                    dataset,
+                    new Map([
+                        [Role.Top, "Garen"],
+                        [Role.Jungle, "Vi"],
+                        [Role.Middle, "Ahri"],
+                        [Role.Bottom, adc],
+                        [Role.Support, "Janna"],
+                    ]),
+                ),
+                enemy,
+            ).score;
+        expect(response("Jinx")).toBeGreaterThan(response("Jhin"));
+        expect(response("Vayne")).toBeGreaterThan(response("Jhin"));
+    });
+
+    test("does not substitute CC for tank damage", () => {
+        const dataset = createDataset(["Alistar", "Vayne", "DrMundo"]);
+        const enemy = getTeamCompositionScore(
+            dataset,
+            new Map([[Role.Top, "DrMundo"]]),
+        );
+        const cc = getEnemyResponseScore(
+            getTeamCompositionScore(
+                dataset,
+                new Map([[Role.Support, "Alistar"]]),
+            ),
+            enemy,
+        );
+        const damage = getEnemyResponseScore(
+            getTeamCompositionScore(dataset, new Map([[Role.Bottom, "Vayne"]])),
+            enemy,
+        );
+        expect(cc.score).toBe(0);
+        expect(damage.score).toBeGreaterThan(cc.score);
+    });
+
+    test("values protection of an exposed carry over generic frontline", () => {
+        const dataset = createDataset([
+            "Jinx",
+            "Janna",
+            "DrMundo",
+            "Malphite",
+            "Vi",
+        ]);
+        const enemy = getTeamCompositionScore(
+            dataset,
+            new Map([
+                [Role.Top, "Malphite"],
+                [Role.Jungle, "Vi"],
+            ]),
+        );
+        const response = (support: string) =>
+            getEnemyResponseScore(
+                getTeamCompositionScore(
+                    dataset,
+                    new Map([
+                        [Role.Bottom, "Jinx"],
+                        [Role.Support, support],
+                    ]),
+                ),
+                enemy,
+            ).score;
+        expect(response("Janna")).toBeGreaterThan(response("DrMundo"));
+    });
+
     test("rewards sustained damage into multiple enemy frontliners", () => {
         const dataset = createDataset([
             "Jinx",
@@ -303,6 +535,7 @@ describe("enemy composition response", () => {
     test("rewards peel into multiple enemy engage threats", () => {
         const dataset = createDataset([
             "Janna",
+            "Jinx",
             "MasterYi",
             "Fiddlesticks",
             "Kennen",
@@ -317,14 +550,20 @@ describe("enemy composition response", () => {
         const peel = getEnemyResponseScore(
             getTeamCompositionScore(
                 dataset,
-                new Map([[Role.Support, "Janna"]]),
+                new Map([
+                    [Role.Support, "Janna"],
+                    [Role.Bottom, "Jinx"],
+                ]),
             ),
             enemy,
         );
         const noPeel = getEnemyResponseScore(
             getTeamCompositionScore(
                 dataset,
-                new Map([[Role.Jungle, "MasterYi"]]),
+                new Map([
+                    [Role.Jungle, "MasterYi"],
+                    [Role.Bottom, "Jinx"],
+                ]),
             ),
             enemy,
         );
@@ -337,6 +576,7 @@ describe("enemy composition response", () => {
         const dataset = createDataset([
             "Malphite",
             "MasterYi",
+            "Ahri",
             "Janna",
             "Lulu",
         ]);
@@ -348,13 +588,22 @@ describe("enemy composition response", () => {
             ]),
         );
         const engage = getEnemyResponseScore(
-            getTeamCompositionScore(dataset, new Map([[Role.Top, "Malphite"]])),
+            getTeamCompositionScore(
+                dataset,
+                new Map([
+                    [Role.Top, "Malphite"],
+                    [Role.Middle, "Ahri"],
+                ]),
+            ),
             enemy,
         );
         const noEngage = getEnemyResponseScore(
             getTeamCompositionScore(
                 dataset,
-                new Map([[Role.Jungle, "MasterYi"]]),
+                new Map([
+                    [Role.Jungle, "MasterYi"],
+                    [Role.Middle, "Ahri"],
+                ]),
             ),
             enemy,
         );

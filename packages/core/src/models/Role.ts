@@ -12,16 +12,6 @@ export type Role = (typeof ROLES)[number];
 
 export const ROLES = [0, 1, 2, 3, 4] as const;
 
-export type RoleWeights = Record<Role, number>;
-
-export const DEFAULT_ROLE_WEIGHTS: RoleWeights = {
-    [Role.Top]: 100,
-    [Role.Jungle]: 100,
-    [Role.Middle]: 100,
-    [Role.Bottom]: 100,
-    [Role.Support]: 100,
-};
-
 export const displayNameByRole = {
     [Role.Top]: "Top",
     [Role.Jungle]: "Jungle",

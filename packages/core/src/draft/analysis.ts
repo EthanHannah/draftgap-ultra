@@ -1,6 +1,12 @@
 import { defaultChampionRoleData } from "../models/dataset/ChampionRoleData";
 import { Dataset } from "../models/dataset/Dataset";
-import { DEFAULT_ROLE_WEIGHTS, Role, RoleWeights } from "../models/Role";
+import { Role } from "../models/Role";
+import {
+    getInteractionInfluenceWeight,
+    getDuoInteractionWeight,
+    getTeamDuoInteractionWeight,
+    getMatchupInteractionWeight,
+} from "./role-influence";
 import { winrateToRating, ratingToWinrate } from "../rating/ratings";
 import { RiskLevel, priorGamesByRiskLevel } from "../risk/risk-level";
 import { addStats, averageStats } from "../stats";
@@ -162,14 +168,12 @@ export function aggregateDraftResults(results: WeightedDraftResult[]) {
         }
 
         return {
-            duoResults: [...byDuo.values()].map(
-                ({ roleWeights, ...duo }) => {
-                    const [roleA, roleB] = mostLikelyValue(roleWeights)
-                        .split(":")
-                        .map(Number) as [Role, Role];
-                    return { ...duo, roleA, roleB };
-                },
-            ),
+            duoResults: [...byDuo.values()].map(({ roleWeights, ...duo }) => {
+                const [roleA, roleB] = mostLikelyValue(roleWeights)
+                    .split(":")
+                    .map(Number) as [Role, Role];
+                return { ...duo, roleA, roleB };
+            }),
             totalRating: normalizedResults.reduce(
                 (total, { result, weight }) =>
                     total + getResults(result).totalRating * weight,
@@ -249,27 +253,10 @@ export function aggregateDraftResults(results: WeightedDraftResult[]) {
 
 export interface AnalyzeDraftConfig {
     championWinrateInfluence: number;
+    matchupInfluence: number;
+    duoInfluence: number;
     riskLevel: RiskLevel;
     minGames: number;
-    matchupRoleWeights: RoleWeights;
-    duoRoleWeights: RoleWeights;
-}
-
-export function getDuoInteractionWeight(
-    roleWeights: RoleWeights,
-    roleA: Role,
-    roleB: Role,
-) {
-    if (roleWeights[roleA] === 0 || roleWeights[roleB] === 0) return 0;
-
-    return (roleWeights[roleA] + roleWeights[roleB]) / 200;
-}
-
-export function getMatchupInteractionWeight(
-    roleWeights: RoleWeights,
-    enemyRole: Role,
-) {
-    return roleWeights[enemyRole] / 100;
 }
 
 export function analyzeDraft(
@@ -278,6 +265,7 @@ export function analyzeDraft(
     team: Map<Role, string>,
     enemy: Map<Role, string>,
     config: AnalyzeDraftConfig,
+    suggestionRole?: Role,
 ): DraftResult {
     const priorGames = priorGamesByRiskLevel[config.riskLevel];
 
@@ -300,20 +288,22 @@ export function analyzeDraft(
         fullDataset,
         team,
         priorGames,
-        config.duoRoleWeights,
+        suggestionRole,
+        config.duoInfluence,
     );
     const enemyDuoRating = analyzeDuos(
         fullDataset,
         enemy,
         priorGames,
-        config.duoRoleWeights,
+        undefined,
+        config.duoInfluence,
     );
     const matchupRating = analyzeMatchups(
         fullDataset,
         team,
         enemy,
         priorGames,
-        config.matchupRoleWeights,
+        config.matchupInfluence,
     );
 
     const totalRating =
@@ -480,7 +470,8 @@ export function analyzeDuos(
     dataset: Dataset,
     team: Map<Role, string>,
     priorGames: number,
-    roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS,
+    suggestionRole?: Role,
+    influence = 100,
 ): AnalyzeDuosResult {
     const teamEntries = Array.from(team.entries()).sort((a, b) => a[0] - b[0]);
 
@@ -491,6 +482,14 @@ export function analyzeDuos(
         for (let j = i + 1; j < teamEntries.length; j++) {
             const [role, championKey] = teamEntries[i];
             const [role2, championKey2] = teamEntries[j];
+            // Candidate-related pairs use the same perspective as situational
+            // and blind scoring. Other pairs retain the neutral team average.
+            const interactionWeight =
+                suggestionRole === role
+                    ? getDuoInteractionWeight(role, role2)
+                    : suggestionRole === role2
+                      ? getDuoInteractionWeight(role2, role)
+                      : getTeamDuoInteractionWeight(role, role2);
             const duoResult = analyzeDuo(
                 dataset,
                 role,
@@ -498,7 +497,7 @@ export function analyzeDuos(
                 role2,
                 championKey2,
                 priorGames,
-                roleWeights,
+                interactionWeight * getInteractionInfluenceWeight(influence),
             );
 
             duoResults.push(duoResult);
@@ -519,7 +518,7 @@ export function analyzeDuo(
     roleB: Role,
     championKeyB: string,
     priorGames: number,
-    roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS,
+    interactionWeight = 1,
 ): AnalyzeDuoResult {
     const roleStats = getStats(dataset, championKeyA, roleA);
     const champion2RoleStats = getStats(dataset, championKeyB, roleB);
@@ -559,9 +558,7 @@ export function analyzeDuo(
     const winrate = adjustedStats.wins / adjustedStats.games;
 
     const actualRating = winrateToRating(winrate);
-    const rating =
-        (actualRating - expectedRating) *
-        getDuoInteractionWeight(roleWeights, roleA, roleB);
+    const rating = (actualRating - expectedRating) * interactionWeight;
 
     return {
         roleA,
@@ -601,7 +598,7 @@ export function analyzeMatchups(
     team: Map<Role, string>,
     enemy: Map<Role, string>,
     priorGames: number,
-    roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS,
+    influence = 100,
 ): AnalyzeMatchupsResult {
     const matchupResults: AnalyzeMatchupResult[] = [];
     let totalRating = 0;
@@ -615,7 +612,8 @@ export function analyzeMatchups(
                 enemyRole,
                 enemyChampionKey,
                 priorGames,
-                roleWeights,
+                getMatchupInteractionWeight(allyRole, enemyRole) *
+                    getInteractionInfluenceWeight(influence),
             );
 
             matchupResults.push(matchupResult);
@@ -636,7 +634,7 @@ export function analyzeMatchup(
     enemyRole: Role,
     enemyChampionKey: string,
     priorGames: number,
-    roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS,
+    interactionWeight = 1,
 ): AnalyzeMatchupResult {
     const roleStats = getStats(dataset, allyChampionKey, allyRole);
     const enemyRoleStats = getStats(dataset, enemyChampionKey, enemyRole);
@@ -686,9 +684,7 @@ export function analyzeMatchup(
     const winrate = adjustedStats.wins / adjustedStats.games;
 
     const actualRating = winrateToRating(winrate);
-    const rating =
-        (actualRating - expectedRating) *
-        getMatchupInteractionWeight(roleWeights, enemyRole);
+    const rating = (actualRating - expectedRating) * interactionWeight;
 
     return {
         roleA: allyRole,

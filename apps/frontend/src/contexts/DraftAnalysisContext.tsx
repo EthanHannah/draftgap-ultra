@@ -69,10 +69,10 @@ export function createDraftAnalysisContext() {
 
     const draftAnalysisConfig = () => ({
         championWinrateInfluence: config.championWinrateInfluence,
+        matchupInfluence: config.matchupInfluence,
+        duoInfluence: config.duoInfluence,
         riskLevel: config.riskLevel,
         minGames: config.minGames,
-        matchupRoleWeights: config.matchupRoleWeights,
-        duoRoleWeights: config.duoRoleWeights,
     });
     const suggestionConfig = () => ({
         ...draftAnalysisConfig(),

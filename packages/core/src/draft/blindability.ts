@@ -39,7 +39,9 @@ function getAllyFit(interactions: WeightedRating[]) {
     const tailWeight = totalWeight * LOWER_TAIL_FRACTION;
     const tailRating = weightedLowerTailSum(interactions, tailWeight);
     const gap = Math.max(0, mean - tailRating / tailWeight);
-    return { gap, score: mean - LOWER_TAIL_WEIGHT * gap };
+    // Expected teammate performance belongs to situational scoring. Blind
+    // ally fit measures only downside relative to that expected performance.
+    return { gap, score: -LOWER_TAIL_WEIGHT * gap };
 }
 
 function getExposure(rating: number) {

@@ -1,4 +1,10 @@
-import { DEFAULT_ROLE_WEIGHTS, Role, ROLES } from "../models/Role";
+import {
+    getInteractionInfluenceWeight,
+    getDuoInteractionWeight,
+    getMatchupInteractionWeight,
+    getBlindMatchupInteractionWeight,
+} from "./role-influence";
+import { Role, ROLES } from "../models/Role";
 import { Dataset } from "../models/dataset/Dataset";
 import { ratingToWinrate, winrateToRating } from "../rating/ratings";
 import { priorGamesByRiskLevel } from "../risk/risk-level";
@@ -10,7 +16,6 @@ import {
     analyzeMatchup,
     aggregateDraftResults,
     normalizeTeamComps,
-    getDuoInteractionWeight,
     WeightedTeamComp,
 } from "./analysis";
 import { getStats } from "./utils";
@@ -32,6 +37,12 @@ import {
     getEnemyResponseWinrateDelta,
     getTeamCompositionScore,
 } from "../composition/composition";
+
+import {
+    AvailableChampion,
+    PickAnchor,
+    getDraftPickDistribution,
+} from "./pick-distribution";
 
 // Fixed weekly-equivalent role volume for potential interactions and baselines.
 export const INTERACTION_MIN_GAMES = 1000;
@@ -130,43 +141,6 @@ type RawSuggestion = Omit<
     enemyResponseStageWeight: number;
     hasEnemyResponseProfiles: boolean;
 };
-
-// Opponents can react to a revealed first pick, so retain equal coverage for
-// niche counterpicks instead of relying entirely on unconditional pick rate.
-const COUNTER_META_PICK_RATE_FRACTION = 0.5;
-// Each cross-role matchup receives one eighth of the direct matchup weight, so
-// all four non-lane roles together contribute half as much as the lane/jungle
-// counterpart. This catches broader kit counters without diluting lane safety.
-const CROSS_ROLE_COUNTER_WEIGHT = 0.125;
-
-type AvailableChampion = {
-    championKey: string;
-    pickWeight: number;
-};
-
-function withCounterPickWeights(champions: AvailableChampion[]) {
-    if (champions.length === 0) return [];
-
-    const totalPickWeight = champions.reduce(
-        (total, champion) => total + champion.pickWeight,
-        0,
-    );
-    const uniformWeight = 1 / champions.length;
-
-    return champions.map((champion) => {
-        const metaWeight =
-            totalPickWeight === 0
-                ? uniformWeight
-                : champion.pickWeight / totalPickWeight;
-
-        return {
-            ...champion,
-            counterPickWeight:
-                metaWeight * COUNTER_META_PICK_RATE_FRACTION +
-                uniformWeight * (1 - COUNTER_META_PICK_RATE_FRACTION),
-        };
-    });
-}
 
 function isEligibleInRole(
     dataset: Dataset,
@@ -284,6 +258,10 @@ export function getSuggestionsWithRoleUncertainty(
         ]),
     ) as Record<Role, AvailableChampion[]>;
     const priorGames = priorGamesByRiskLevel[config.riskLevel];
+    const duoInfluence = getInteractionInfluenceWeight(config.duoInfluence);
+    const matchupInfluence = getInteractionInfluenceWeight(
+        config.matchupInfluence,
+    );
     const duoResultCache = new Map<string, ReturnType<typeof analyzeDuo>>();
     const matchupResultCache = new Map<
         string,
@@ -307,7 +285,7 @@ export function getSuggestionsWithRoleUncertainty(
             teammateRole,
             teammateKey,
             priorGames,
-            config.duoRoleWeights,
+            getDuoInteractionWeight(role, teammateRole),
         );
         duoResultCache.set(cacheKey, result);
         return result;
@@ -330,7 +308,6 @@ export function getSuggestionsWithRoleUncertainty(
             opponentRole,
             opponentKey,
             priorGames,
-            DEFAULT_ROLE_WEIGHTS,
         );
         matchupResultCache.set(cacheKey, result);
         return result;
@@ -375,13 +352,7 @@ export function getSuggestionsWithRoleUncertainty(
         }
         const prior = getBlindInteractionPrior(
             interactions(),
-            family === "ally"
-                ? getDuoInteractionWeight(
-                      config.duoRoleWeights,
-                      role,
-                      otherRole,
-                  )
-                : 1,
+            family === "ally" ? getDuoInteractionWeight(role, otherRole) : 1,
         );
         priorCache.set(key, prior);
         return prior;
@@ -435,6 +406,69 @@ export function getSuggestionsWithRoleUncertainty(
                           ),
                 ]),
             ) as Record<Role, number>;
+            // Condition forecasts on each legal visible role assignment. The
+            // suggested champion becomes visible in either family's forecast;
+            // no unrevealed champion identities are used.
+            const getFuturePicks = (
+                family: "ally" | "enemy",
+                targetRole: Role,
+            ) => {
+                const pool = eligibleChampionsByRole[targetRole].filter(
+                    (pick) =>
+                        pick.championKey !== championKey &&
+                        !unavailableChampions.has(pick.championKey),
+                );
+                const probabilities = new Map<string, number>();
+                let openWeight = 0;
+                for (const [team, teamWeight] of compatibleTeamComps) {
+                    for (const [enemy, enemyWeight] of normalizedEnemyComps) {
+                        if ((family === "ally" ? team : enemy).has(targetRole))
+                            continue;
+                        const ownTeam = new Map(team);
+                        ownTeam.set(role, championKey);
+                        const anchors: PickAnchor[] = [
+                            ...[...ownTeam].map(([anchorRole, key]) => ({
+                                championKey: key,
+                                role: anchorRole,
+                                family:
+                                    family === "ally"
+                                        ? ("duo" as const)
+                                        : ("matchup" as const),
+                            })),
+                            ...[...enemy].map(([anchorRole, key]) => ({
+                                championKey: key,
+                                role: anchorRole,
+                                family:
+                                    family === "enemy"
+                                        ? ("duo" as const)
+                                        : ("matchup" as const),
+                            })),
+                        ];
+                        const weight = teamWeight * enemyWeight;
+                        const forecast = getDraftPickDistribution(
+                            synergyMatchupDataset,
+                            targetRole,
+                            pool,
+                            anchors,
+                        );
+                        for (const [key, probability] of forecast) {
+                            probabilities.set(
+                                key,
+                                (probabilities.get(key) ?? 0) +
+                                    probability * weight,
+                            );
+                        }
+                        openWeight += weight;
+                    }
+                }
+                if (openWeight > 0) {
+                    for (const [key, probability] of probabilities) {
+                        probabilities.set(key, probability / openWeight);
+                    }
+                }
+                return probabilities;
+            };
+
             let synergyGap = 0;
             let synergyScore = 0;
             let allyObservedContextRating = 0;
@@ -443,6 +477,7 @@ export function getSuggestionsWithRoleUncertainty(
             for (const teammateRole of ROLES) {
                 if (teammateRole === role) continue;
                 const roleProbability = allyOpenRoleProbability[teammateRole];
+                const futurePicks = getFuturePicks("ally", teammateRole);
                 const results = eligibleChampionsByRole[teammateRole]
                     .filter((teammate) => teammate.championKey !== championKey)
                     .map((teammate) => ({
@@ -452,23 +487,33 @@ export function getSuggestionsWithRoleUncertainty(
                             teammate.championKey,
                             teammateRole,
                         ),
-                        metaWeight: teammate.pickWeight,
+                        metaWeight: futurePicks.get(teammate.championKey) ?? 0,
+                        coverageWeight: teammate.pickWeight,
                         available: !unavailableChampions.has(
                             teammate.championKey,
                         ),
                     }));
                 const contextRatings = getContextRatings(
-                    results.map(({ result, metaWeight, available }) => ({
-                        rating: result.rating,
-                        games: result.games,
-                        metaWeight,
-                        available,
-                    })),
+                    results.map(
+                        ({
+                            result,
+                            metaWeight,
+                            coverageWeight,
+                            available,
+                        }) => ({
+                            rating: result.rating,
+                            games: result.games,
+                            metaWeight,
+                            coverageWeight,
+                            available,
+                        }),
+                    ),
                     priorGames,
                     roleProbability,
                 );
-                allyObservedContextRating += contextRatings.observed;
-                allyMetaContextRating += contextRatings.meta;
+                allyObservedContextRating +=
+                    contextRatings.observed * duoInfluence;
+                allyMetaContextRating += contextRatings.meta * duoInfluence;
                 if (roleProbability === 0) continue;
 
                 const availableResults = results.filter(
@@ -483,12 +528,12 @@ export function getSuggestionsWithRoleUncertainty(
                     getPrior("ally", role, teammateRole),
                     priorGames,
                 );
-                synergyGap += allyFit.gap * roleProbability;
-                synergyScore += allyFit.score * roleProbability;
+                synergyGap += allyFit.gap * roleProbability * duoInfluence;
+                synergyScore += allyFit.score * roleProbability * duoInfluence;
                 synergyInteractions.push(
                     ...availableResults.map(({ result, metaWeight }) => ({
                         games: result.games,
-                        weight: metaWeight * roleProbability,
+                        weight: metaWeight * roleProbability * duoInfluence,
                     })),
                 );
             }
@@ -504,11 +549,13 @@ export function getSuggestionsWithRoleUncertainty(
             const matchupInteractions: { games: number; weight: number }[] = [];
             for (const opponentRole of ROLES) {
                 const matchupRoleWeight =
-                    Math.max(0, config.matchupRoleWeights[opponentRole]) / 100;
+                    getMatchupInteractionWeight(role, opponentRole) *
+                    matchupInfluence;
                 const roleProbability =
                     enemyOpenRoleProbability[opponentRole] *
-                    matchupRoleWeight *
-                    (opponentRole === role ? 1 : CROSS_ROLE_COUNTER_WEIGHT);
+                    getBlindMatchupInteractionWeight(role, opponentRole) *
+                    matchupInfluence;
+                const futurePicks = getFuturePicks("enemy", opponentRole);
                 const possibleOpponents = eligibleChampionsByRole[
                     opponentRole
                 ].filter((opponent) => opponent.championKey !== championKey);
@@ -526,16 +573,25 @@ export function getSuggestionsWithRoleUncertainty(
                         opponent.championKey,
                         opponentRole,
                     ),
-                    metaWeight: opponent.pickWeight,
+                    metaWeight: futurePicks.get(opponent.championKey) ?? 0,
+                    coverageWeight: opponent.pickWeight,
                     available: availableOpponentKeys.has(opponent.championKey),
                 }));
                 const contextRatings = getContextRatings(
-                    results.map(({ result, metaWeight, available }) => ({
-                        rating: result.rating,
-                        games: result.games,
-                        metaWeight,
-                        available,
-                    })),
+                    results.map(
+                        ({
+                            result,
+                            metaWeight,
+                            coverageWeight,
+                            available,
+                        }) => ({
+                            rating: result.rating,
+                            games: result.games,
+                            metaWeight,
+                            coverageWeight,
+                            available,
+                        }),
+                    ),
                     priorGames,
                     enemyOpenRoleProbability[opponentRole],
                 );
@@ -551,11 +607,9 @@ export function getSuggestionsWithRoleUncertainty(
                         result.result,
                     ]),
                 );
-                const availableResults = withCounterPickWeights(
-                    availableOpponents,
-                ).map((opponent) => ({
+                const availableResults = availableOpponents.map((opponent) => ({
                     result: resultByChampion.get(opponent.championKey)!,
-                    weight: opponent.counterPickWeight,
+                    weight: futurePicks.get(opponent.championKey) ?? 0,
                 }));
                 const weightedInteractions = availableResults.map(
                     ({ result, weight }) => ({
@@ -619,6 +673,7 @@ export function getSuggestionsWithRoleUncertainty(
                                 teamWithSuggestion,
                                 enemy,
                                 config,
+                                role,
                             ),
                             weight: teamProbability * enemyProbability,
                         };
@@ -772,7 +827,7 @@ export function getSuggestionsWithRoleUncertainty(
     const suggestions = rawSuggestions.map<Suggestion>((suggestion) => {
         // The base win rate describes the contexts in which players actually
         // selected this champion. Re-center every interaction family from that
-        // observed mix to the ordinary meta mix for slots that remain open.
+        // observed mix to the draft-conditioned mix for slots that remain open.
         // Once a slot is revealed, analyzeDraft supplies its direct interaction
         // and only the observed-context centering remains. Each role's context
         // contrast is already reduced according to its data coverage.
