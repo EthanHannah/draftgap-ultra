@@ -1,5 +1,14 @@
-import { JSXElement, createContext, createMemo, useContext } from "solid-js";
-import { createSuggestionCache } from "@draftgap/core/src/draft/suggestion-cache";
+import {
+    JSXElement,
+    batch,
+    createContext,
+    createEffect,
+    createSignal,
+    onCleanup,
+    useContext,
+} from "solid-js";
+import type { Suggestion } from "@draftgap/core/src/draft/suggestions";
+import { createSuggestionWorker } from "../utils/suggestion-worker";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
 import { useDraft } from "./DraftContext";
@@ -13,28 +22,73 @@ export function createDraftSuggestionsContext() {
     const { bans, selection } = useDraft();
     const { currentDraftView } = useDraftView();
     const { isMobileLayout } = useMedia();
-    const calculate = createSuggestionCache();
+    const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
+    const [isCalculating, setIsCalculating] = createSignal(false);
+    const [error, setError] = createSignal<string>();
+    let client: ReturnType<typeof createSuggestionWorker> | undefined;
+    onCleanup(() => client?.dispose());
 
-    const suggestions = createMemo(() => {
+    createEffect(() => {
         const view = currentDraftView();
         if (
             !isLoaded() ||
             view.type !== "draft" ||
             (isMobileLayout() && view.subType !== "draft")
-        )
-            return [];
+        ) {
+            client?.clear();
+            batch(() => {
+                setSuggestions([]);
+                setIsCalculating(false);
+                setError(undefined);
+            });
+            return;
+        }
         const isOpponent = selection.team === "opponent";
-        return calculate(
-            dataset()!,
-            dataset30Days()!,
-            isOpponent ? opponentTeamComps() : allyTeamComps(),
-            isOpponent ? allyTeamComps() : opponentTeamComps(),
-            suggestionConfig(),
-            bans,
-        );
+        // Snapshot reactive values before posting; Solid store proxies cannot
+        // be structured-cloned. Datasets are immutable resource values.
+        const input = {
+            dataset: dataset()!,
+            interactions: dataset30Days()!,
+            team: isOpponent ? opponentTeamComps() : allyTeamComps(),
+            enemy: isOpponent ? allyTeamComps() : opponentTeamComps(),
+            config: suggestionConfig(),
+            bans: [...bans],
+        };
+        batch(() => {
+            setSuggestions([]);
+            setError(undefined);
+            setIsCalculating(true);
+        });
+        try {
+            client ??= createSuggestionWorker(
+                new Worker(
+                    new URL(
+                        "../workers/suggestions.worker.ts",
+                        import.meta.url,
+                    ),
+                    { type: "module" },
+                ),
+                (response) =>
+                    batch(() => {
+                        setSuggestions(
+                            "suggestions" in response
+                                ? response.suggestions
+                                : [],
+                        );
+                        setError(
+                            "error" in response ? response.error : undefined,
+                        );
+                        setIsCalculating(false);
+                    }),
+            );
+            client.request(input);
+        } catch (error) {
+            setError(error instanceof Error ? error.message : String(error));
+            setIsCalculating(false);
+        }
     });
 
-    return { suggestions };
+    return { suggestions, isCalculating, error };
 }
 
 export const DraftSuggestionsContext =

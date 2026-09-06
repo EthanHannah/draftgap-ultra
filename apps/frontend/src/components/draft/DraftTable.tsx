@@ -73,7 +73,7 @@ export default function DraftTable() {
         setFavouriteFilter,
         scalingFilter,
     } = useDraftFilters();
-    const { suggestions } = useDraftSuggestions();
+    const { suggestions, isCalculating, error } = useDraftSuggestions();
     const { allyDraftAnalysis, opponentDraftAnalysis } = useDraftAnalysis();
     const { isFavourite, setFavourite, config } = useUser();
 
@@ -575,6 +575,16 @@ export default function DraftTable() {
 
     return (
         <>
+            <Show when={isCalculating()}>
+                <p role="status" class="px-3 py-2 text-sm text-neutral-400">
+                    Updating recommendations…
+                </p>
+            </Show>
+            <Show when={error()}>
+                <p role="alert" class="px-3 py-2 text-sm text-red-400">
+                    {error()}
+                </p>
+            </Show>
             <Table
                 table={table}
                 onClickRow={pick}
