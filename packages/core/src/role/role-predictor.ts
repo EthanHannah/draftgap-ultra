@@ -1,6 +1,8 @@
 import { Role, ROLES } from "../models/Role";
 import { ChampionData } from "../models/dataset/ChampionData";
 
+const MIN_ROLE_PLAY_RATE = 0.01;
+
 export function getTeamComps(champions: (ChampionData & { role?: Role })[]) {
     const existingTeam = new Map(
         champions
@@ -29,6 +31,7 @@ function getTeamCompsRecursive(
         (a, b) => a + champion.statsByRole[b].games,
         0,
     );
+    if (totalGames <= 0) return [];
 
     const combinations = [];
     for (const entry of Object.entries(champion.statsByRole)) {
@@ -39,6 +42,7 @@ function getTeamCompsRecursive(
         }
 
         const roleProbability = roleData.games / totalGames;
+        if (roleProbability < MIN_ROLE_PLAY_RATE) continue;
 
         const newPartialTeamComp = new Map(partialTeamComp);
         newPartialTeamComp.set(role, champion.key);
