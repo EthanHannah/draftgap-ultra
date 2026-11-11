@@ -9,9 +9,54 @@ export type PickAnchor = {
 };
 
 const PICK_PRIOR_GAMES = 2000;
+
 // Co-occurrence is not observed pick order. Even abundant pair data retains
 // half of the ordinary meta distribution rather than asserting a reaction.
 const MAX_CONDITIONAL_WEIGHT = 0.5;
+
+const anchorCountCache = new WeakMap<
+    Dataset,
+    Map<string, Map<string, number>>
+>();
+// Pair games between an anchor and every champion in a role, averaging the
+// two stored views of the same games. Forecasts run for every candidate, open
+// role and role assignment, so these lookups are cached per dataset and
+// anchor. Datasets must not be mutated after they are first analyzed.
+function getAnchorCounts(dataset: Dataset, role: Role, anchor: PickAnchor) {
+    let datasetCache = anchorCountCache.get(dataset);
+    if (!datasetCache) {
+        datasetCache = new Map();
+        anchorCountCache.set(dataset, datasetCache);
+    }
+    const field = anchor.family === "duo" ? "synergy" : "matchup";
+    const key = `${field}:${role}:${anchor.role}:${anchor.championKey}`;
+    const cached = datasetCache.get(key);
+    if (cached) return cached;
+    const counts = new Map<string, number>();
+    const reverseRows =
+        dataset.championData[anchor.championKey]?.statsByRole[anchor.role]?.[
+            field
+        ]?.[role] ?? {};
+    for (const [championKey, champion] of Object.entries(
+        dataset.championData,
+    )) {
+        const forward =
+            champion.statsByRole[role]?.[field]?.[anchor.role]?.[
+                anchor.championKey
+            ]?.games ?? 0;
+        const reverse = reverseRows[championKey]?.games ?? 0;
+        const valid = [forward, reverse].filter(
+            (games) => Number.isFinite(games) && games > 0,
+        );
+        if (valid.length)
+            counts.set(
+                championKey,
+                valid.reduce((a, b) => a + b, 0) / valid.length,
+            );
+    }
+    datasetCache.set(key, counts);
+    return counts;
+}
 
 export function getDraftPickDistribution(
     dataset: Dataset,
@@ -40,24 +85,10 @@ export function getDraftPickDistribution(
     let anchorCount = 0;
     for (const anchor of uniqueAnchors) {
         if (anchor.family === "duo" && anchor.role === role) continue;
-        const counts = pool.map(({ championKey }) => {
-            const field = anchor.family === "duo" ? "synergy" : "matchup";
-            const forward =
-                dataset.championData[championKey]?.statsByRole[role]?.[field]?.[
-                    anchor.role
-                ]?.[anchor.championKey]?.games ?? 0;
-            const reverse =
-                dataset.championData[anchor.championKey]?.statsByRole[
-                    anchor.role
-                ]?.[field]?.[role]?.[championKey]?.games ?? 0;
-            const valid = [forward, reverse].filter(
-                (games) => Number.isFinite(games) && games > 0,
-            );
-            // These are two views of the same games, never independent samples.
-            return valid.length
-                ? valid.reduce((a, b) => a + b, 0) / valid.length
-                : 0;
-        });
+        const countsByChampion = getAnchorCounts(dataset, role, anchor);
+        const counts = pool.map(
+            ({ championKey }) => countsByChampion.get(championKey) ?? 0,
+        );
         const totalGames = counts.reduce((total, games) => total + games, 0);
         if (totalGames === 0) continue;
         // A large sample for one champion cannot establish the distribution

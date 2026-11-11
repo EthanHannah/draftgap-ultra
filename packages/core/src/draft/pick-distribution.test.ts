@@ -61,15 +61,17 @@ describe("draft-conditioned pick forecasts", () => {
     });
 
     test("supported conditional selection increases rare-pick likelihood while sparse data stays near meta", () => {
-        const { dataset, pool, anchor, setCounts } = fixture();
-        setCounts(100, 900);
-        const supported = getDraftPickDistribution(dataset, Role.Middle, pool, [
-            anchor,
-        ]).get("rare")!;
-        setCounts(0.1, 0.9);
-        const sparse = getDraftPickDistribution(dataset, Role.Middle, pool, [
-            anchor,
-        ]).get("rare")!;
+        // Datasets are immutable once analyzed (pair counts are cached), so
+        // each scenario gets its own fixture.
+        const rareProbability = (common: number, rare: number) => {
+            const { dataset, pool, anchor, setCounts } = fixture();
+            setCounts(common, rare);
+            return getDraftPickDistribution(dataset, Role.Middle, pool, [
+                anchor,
+            ]).get("rare")!;
+        };
+        const supported = rareProbability(100, 900);
+        const sparse = rareProbability(0.1, 0.9);
         expect(supported).toBeGreaterThan(0.2);
         expect(supported).toBeLessThan(0.5);
         expect(sparse).toBeGreaterThan(0.1);
@@ -90,11 +92,16 @@ describe("draft-conditioned pick forecasts", () => {
     });
 
     test("reverse and forward records are two views, not twice the evidence", () => {
+        const oneView = fixture();
+        oneView.setCounts(100, 900);
+        const before = getDraftPickDistribution(
+            oneView.dataset,
+            Role.Middle,
+            oneView.pool,
+            [oneView.anchor],
+        );
         const { dataset, pool, anchor, setCounts } = fixture();
         setCounts(100, 900);
-        const before = getDraftPickDistribution(dataset, Role.Middle, pool, [
-            anchor,
-        ]);
         for (const key of ["common", "rare"]) {
             const pair =
                 dataset.championData.anchor.statsByRole[Role.Top].matchup[
@@ -119,14 +126,19 @@ describe("draft-conditioned pick forecasts", () => {
     });
 
     test("uses the correct same-team relationship and excludes unavailable picks", () => {
+        const matchupOnly = fixture();
+        matchupOnly.setCounts(100, 900);
+        const duoAnchor = { ...matchupOnly.anchor, family: "duo" as const };
+        expect(
+            getDraftPickDistribution(
+                matchupOnly.dataset,
+                Role.Middle,
+                matchupOnly.pool,
+                [duoAnchor],
+            ).get("rare"),
+        ).toBeCloseTo(0.1);
         const { dataset, pool, anchor, setCounts } = fixture();
         setCounts(100, 900);
-        const duoAnchor = { ...anchor, family: "duo" as const };
-        expect(
-            getDraftPickDistribution(dataset, Role.Middle, pool, [
-                duoAnchor,
-            ]).get("rare"),
-        ).toBeCloseTo(0.1);
         dataset.championData.anchor.statsByRole[Role.Top].synergy[Role.Middle] =
             dataset.championData.anchor.statsByRole[Role.Top].matchup[
                 Role.Middle

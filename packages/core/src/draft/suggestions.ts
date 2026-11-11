@@ -7,6 +7,7 @@ import {
     getInteractionInfluenceWeight,
     getDuoInteractionWeight,
     getMatchupInteractionWeight,
+    getBlindCounterpickShare,
     getBlindMatchupInteractionWeight,
 } from "./role-influence";
 import { Role, ROLES } from "../models/Role";
@@ -215,6 +216,53 @@ export function getSuggestions(
     );
 }
 
+// Pair results depend only on the interaction dataset and the risk level's
+// pseudo-games, so they persist across drafts. Only the current risk level is
+// kept, which bounds memory to one set of pair results per dataset.
+// Datasets must not be mutated after they are first analyzed.
+const pairResultCaches = new WeakMap<
+    Dataset,
+    {
+        priorGames: number;
+        duoResultCache: Map<string, ReturnType<typeof analyzeDuo>>;
+        matchupResultCache: Map<string, ReturnType<typeof analyzeMatchup>>;
+    }
+>();
+
+function getPairResultCaches(dataset: Dataset, priorGames: number) {
+    let caches = pairResultCaches.get(dataset);
+    if (!caches || caches.priorGames !== priorGames) {
+        caches = {
+            priorGames,
+            duoResultCache: new Map(),
+            matchupResultCache: new Map(),
+        };
+        pairResultCaches.set(dataset, caches);
+    }
+    return caches;
+}
+
+// Priors use raw pair effects, so they depend on both datasets (the candidate
+// pool comes from the current patch) but not on the risk level.
+const priorCaches = new WeakMap<
+    Dataset,
+    WeakMap<Dataset, Map<string, ReturnType<typeof getBlindInteractionPrior>>>
+>();
+
+function getPriorCache(dataset: Dataset, synergyMatchupDataset: Dataset) {
+    let byDataset = priorCaches.get(synergyMatchupDataset);
+    if (!byDataset) {
+        byDataset = new WeakMap();
+        priorCaches.set(synergyMatchupDataset, byDataset);
+    }
+    let cache = byDataset.get(dataset);
+    if (!cache) {
+        cache = new Map();
+        byDataset.set(dataset, cache);
+    }
+    return cache;
+}
+
 export function getSuggestionsWithRoleUncertainty(
     dataset: Dataset,
     synergyMatchupDataset: Dataset,
@@ -271,11 +319,10 @@ export function getSuggestionsWithRoleUncertainty(
     const matchupInfluence = getInteractionInfluenceWeight(
         config.matchupInfluence,
     );
-    const duoResultCache = new Map<string, ReturnType<typeof analyzeDuo>>();
-    const matchupResultCache = new Map<
-        string,
-        ReturnType<typeof analyzeMatchup>
-    >();
+    const { duoResultCache, matchupResultCache } = getPairResultCaches(
+        synergyMatchupDataset,
+        priorGames,
+    );
 
     const getDuoResult = (
         championKey: string,
@@ -322,10 +369,10 @@ export function getSuggestionsWithRoleUncertainty(
         return result;
     };
 
-    const priorCache = new Map<
-        string,
-        ReturnType<typeof getBlindInteractionPrior>
-    >();
+    const priorCache = getPriorCache(dataset, synergyMatchupDataset);
+    // A role pair's interaction spread describes the meta, not this draft, so
+    // it is fitted on the whole eligible pool and reused across drafts. The
+    // handful of picked or banned champions would barely move it.
     const getPrior = (
         family: "ally" | "enemy",
         role: Role,
@@ -336,13 +383,8 @@ export function getSuggestionsWithRoleUncertainty(
         if (cached) return cached;
         function* interactions() {
             for (const candidate of eligibleChampionsByRole[role]) {
-                if (unavailableChampions.has(candidate.championKey)) continue;
                 for (const other of eligibleChampionsByRole[otherRole]) {
-                    if (
-                        candidate.championKey === other.championKey ||
-                        unavailableChampions.has(other.championKey)
-                    )
-                        continue;
+                    if (candidate.championKey === other.championKey) continue;
                     yield family === "ally"
                         ? getDuoResult(
                               candidate.championKey,
@@ -368,6 +410,16 @@ export function getSuggestionsWithRoleUncertainty(
     };
 
     const rawSuggestions: RawSuggestion[] = [];
+    const compositionBaselinePool: Pick<
+        RawSuggestion,
+        | "championKey"
+        | "role"
+        | "compositionPickWeight"
+        | "compositionScore"
+        | "hasCompositionProfiles"
+        | "enemyResponseScore"
+        | "hasEnemyResponseProfiles"
+    >[] = [];
 
     const enemyOpenRoleProbability = Object.fromEntries(
         ROLES.map((role) => [
@@ -401,6 +453,91 @@ export function getSuggestionsWithRoleUncertainty(
                 )
             )
                 continue;
+
+            const compositionPickWeight = getStats(
+                synergyMatchupDataset,
+                championKey,
+                role,
+            ).games;
+            const compositionCoverage = Object.fromEntries(
+                COMPOSITION_DIMENSIONS.map((dimension) => [dimension, 0]),
+            ) as CompositionCoverage;
+            let compositionScore = 0;
+            let compositionStageWeight = 0;
+            let hasCompositionProfiles = true;
+            const enemyResponsePressures: EnemyCompositionPressures = {
+                frontline: 0,
+                engage: 0,
+                peel: 0,
+                waveclear: 0,
+            };
+            let enemyResponseScore = 0;
+            let enemyResponseStageWeight = 0;
+            let hasEnemyResponseProfiles = true;
+
+            for (const [team, teamProbability] of compatibleTeamComps) {
+                const teamWithSuggestion = new Map(team);
+                teamWithSuggestion.set(role, championKey);
+                const composition = getTeamCompositionScore(
+                    dataset,
+                    teamWithSuggestion,
+                );
+
+                hasCompositionProfiles &&= composition.hasProfiles;
+                compositionScore += composition.score * teamProbability;
+                compositionStageWeight +=
+                    getCompositionStageWeight(team.size) * teamProbability;
+                for (const dimension of COMPOSITION_DIMENSIONS) {
+                    compositionCoverage[dimension] +=
+                        composition.coverage[dimension] * teamProbability;
+                }
+
+                for (const enemyResult of enemyCompositionScores) {
+                    const response = getEnemyResponseScore(
+                        composition,
+                        enemyResult.composition,
+                    );
+                    const responseProbability =
+                        teamProbability * enemyResult.probability;
+
+                    hasEnemyResponseProfiles &&=
+                        composition.hasProfiles &&
+                        enemyResult.composition.hasProfiles;
+                    enemyResponseScore += response.score * responseProbability;
+                    enemyResponseStageWeight +=
+                        getEnemyCompositionStageWeight(enemyResult.enemy.size) *
+                        responseProbability;
+                    for (const pressure of Object.keys(
+                        enemyResponsePressures,
+                    ) as (keyof EnemyCompositionPressures)[]) {
+                        enemyResponsePressures[pressure] +=
+                            response.pressures[pressure] * responseProbability;
+                    }
+                }
+            }
+
+            // Every pool candidate contributes to the per-role composition
+            // baselines below, but only candidates shown at the configured
+            // threshold need forecasts, blind scoring and draft analysis.
+            if (
+                !isEligibleInRole(
+                    synergyMatchupDataset,
+                    championKey,
+                    role,
+                    config.minGames,
+                )
+            ) {
+                compositionBaselinePool.push({
+                    championKey,
+                    role,
+                    compositionPickWeight,
+                    compositionScore,
+                    hasCompositionProfiles,
+                    enemyResponseScore,
+                    hasEnemyResponseProfiles,
+                });
+                continue;
+            }
 
             const allyOpenRoleProbability = Object.fromEntries(
                 ROLES.map((unknownRole) => [
@@ -657,6 +794,7 @@ export function getSuggestionsWithRoleUncertainty(
                     weightedInteractions,
                     prior,
                     priorGames,
+                    getBlindCounterpickShare(role, opponentRole),
                 );
                 matchupGap += matchupDistribution.gap * roleProbability;
                 matchupScore += counterExposureResult.score * roleProbability;
@@ -709,68 +847,6 @@ export function getSuggestionsWithRoleUncertainty(
                     }),
             );
             const draftResult = aggregateDraftResults(draftResults);
-            const compositionPickWeight = getStats(
-                synergyMatchupDataset,
-                championKey,
-                role,
-            ).games;
-            const compositionCoverage = Object.fromEntries(
-                COMPOSITION_DIMENSIONS.map((dimension) => [dimension, 0]),
-            ) as CompositionCoverage;
-            let compositionScore = 0;
-            let compositionStageWeight = 0;
-            let hasCompositionProfiles = true;
-            const enemyResponsePressures: EnemyCompositionPressures = {
-                frontline: 0,
-                engage: 0,
-                peel: 0,
-                waveclear: 0,
-            };
-            let enemyResponseScore = 0;
-            let enemyResponseStageWeight = 0;
-            let hasEnemyResponseProfiles = true;
-
-            for (const [team, teamProbability] of compatibleTeamComps) {
-                const teamWithSuggestion = new Map(team);
-                teamWithSuggestion.set(role, championKey);
-                const composition = getTeamCompositionScore(
-                    dataset,
-                    teamWithSuggestion,
-                );
-
-                hasCompositionProfiles &&= composition.hasProfiles;
-                compositionScore += composition.score * teamProbability;
-                compositionStageWeight +=
-                    getCompositionStageWeight(team.size) * teamProbability;
-                for (const dimension of COMPOSITION_DIMENSIONS) {
-                    compositionCoverage[dimension] +=
-                        composition.coverage[dimension] * teamProbability;
-                }
-
-                for (const enemyResult of enemyCompositionScores) {
-                    const response = getEnemyResponseScore(
-                        composition,
-                        enemyResult.composition,
-                    );
-                    const responseProbability =
-                        teamProbability * enemyResult.probability;
-
-                    hasEnemyResponseProfiles &&=
-                        composition.hasProfiles &&
-                        enemyResult.composition.hasProfiles;
-                    enemyResponseScore += response.score * responseProbability;
-                    enemyResponseStageWeight +=
-                        getEnemyCompositionStageWeight(enemyResult.enemy.size) *
-                        responseProbability;
-                    for (const pressure of Object.keys(
-                        enemyResponsePressures,
-                    ) as (keyof EnemyCompositionPressures)[]) {
-                        enemyResponsePressures[pressure] +=
-                            response.pressures[pressure] * responseProbability;
-                    }
-                }
-            }
-
             rawSuggestions.push({
                 championKey,
                 role,
@@ -818,7 +894,7 @@ export function getSuggestionsWithRoleUncertainty(
         }
     >();
 
-    for (const suggestion of rawSuggestions) {
+    for (const suggestion of [...rawSuggestions, ...compositionBaselinePool]) {
         if (bannedChampions.has(suggestion.championKey)) continue;
         // Use the independent interaction pool for composition baselines too.
         // Hiding recommendations must not change scores for the visible picks.

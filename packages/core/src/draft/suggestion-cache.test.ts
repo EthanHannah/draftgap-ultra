@@ -42,21 +42,27 @@ function setup() {
 }
 
 describe("suggestion cache", () => {
-    test("reuses equivalent drafts and applies display filters without recalculating", () => {
+    test("reuses equivalent drafts and filters stricter thresholds without recalculating", () => {
         const { run, calculate, config } = setup();
         expect(run().map((s) => s.championKey)).toEqual(["common"]);
+        expect(calculate).toHaveBeenCalledTimes(1);
+        // Hidden candidates are not fully scored, so a looser threshold
+        // rescores the draft once.
         config.minGames = 1000;
         const both = run();
         expect(both.map((s) => s.championKey)).toEqual(["common", "niche"]);
+        expect(calculate).toHaveBeenCalledTimes(2);
         both.reverse();
         expect(run().map((s) => s.championKey)).toEqual(["common", "niche"]);
+        // Stricter thresholds filter the broader cached result.
         config.minGames = 25000;
         expect(run()).toEqual([]);
-        expect(calculate).toHaveBeenCalledTimes(1);
-        // A cutoff below the scoring pool needs additional candidate scores.
+        config.minGames = 5000;
+        expect(run().map((s) => s.championKey)).toEqual(["common"]);
+        expect(calculate).toHaveBeenCalledTimes(2);
         config.minGames = 500;
         run();
-        expect(calculate).toHaveBeenCalledTimes(2);
+        expect(calculate).toHaveBeenCalledTimes(3);
     });
 
     test("invalidates on in-place draft, ban, weight, and risk changes", () => {

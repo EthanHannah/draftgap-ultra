@@ -387,8 +387,8 @@ describe("suggestion blindability", () => {
             const sparse = findTopSuggestion(suggestions, "sparse");
             const missing = findTopSuggestion(suggestions, "missing");
             expect(missing.blindabilityResult.rating).toBe(0);
-            if (enemySafetyPriority === 100)
-                expect(sparse.blindabilityResult.rating).toBeLessThan(0);
+            // Compared with a typical champion at the same evidence, one game
+            // of any result is negligible rather than a signed penalty.
             expect(
                 Math.abs(
                     sparse.blindabilityResult.adjustedWinrate -
@@ -744,13 +744,15 @@ describe("suggestion blindability", () => {
         );
         // Subtract the equally supported neutral profile: absolute exposure
         // now includes uncertainty even for matchups without a negative mean.
+        // Counterpicks raise a rare counter above its forecast share, so the
+        // gap is smaller than the 9:1 pick ratio alone would give.
         expect(
             rareFavored.blindabilityResult.counterExposure -
                 neutral.blindabilityResult.counterExposure,
         ).toBeGreaterThan(
             (commonFavored.blindabilityResult.counterExposure -
                 neutral.blindabilityResult.counterExposure) *
-                3,
+                1.5,
         );
         expect(rareFavored.blindabilityResult.synergyScore).toBeLessThan(
             neutral.blindabilityResult.synergyScore,

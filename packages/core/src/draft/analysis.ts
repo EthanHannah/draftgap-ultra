@@ -11,6 +11,9 @@ import { winrateToRating, ratingToWinrate } from "../rating/ratings";
 import { RiskLevel, priorGamesByRiskLevel } from "../risk/risk-level";
 import { addStats, averageStats } from "../stats";
 import { getStats } from "./utils";
+import { getViewRatingOffset } from "./view-baseline";
+import { getPairPriorGames } from "./pair-prior";
+import { getChampionPriorWinrate } from "./rare-pick-prior";
 
 export type DraftResult = {
     allyChampionRating: AnalyzeChampionsResult;
@@ -421,10 +424,14 @@ export function analyzeChampion(
         },
     };
     const fullChampionRoleData = fullChampionData.statsByRole[role];
-    const fullChampionRoleWinrate =
-        fullChampionRoleData.games === 0
-            ? 0.5
-            : fullChampionRoleData.wins / fullChampionRoleData.games;
+    // A tiny long-window sample (an off-role pick) must not become a prior
+    // worth thousands of games; shrink it toward what rare picks usually win.
+    const fullChampionRoleWinrate = getChampionPriorWinrate(
+        fullDataset,
+        role,
+        fullChampionRoleData,
+        priorGames,
+    );
 
     const stats = addStats(
         {
@@ -437,7 +444,6 @@ export function analyzeChampion(
             wins: priorGames * fullChampionRoleWinrate,
             games: priorGames,
         },
-        // TOOD: if 30 days has no games, add other prior games
     );
 
     const rating = winrateToRating(stats.wins / stats.games);
@@ -522,15 +528,19 @@ export function analyzeDuo(
 ): AnalyzeDuoResult {
     const roleStats = getStats(dataset, championKeyA, roleA);
     const champion2RoleStats = getStats(dataset, championKeyB, roleB);
+    // Duo rows average both champions' views of the same pairing, so each
+    // baseline is moved onto that averaged scale before it is subtracted.
     const expectedRating =
         winrateToRating(
             roleStats.games === 0 ? 0.5 : roleStats.wins / roleStats.games,
         ) +
+        getViewRatingOffset(dataset, championKeyA, roleA, "synergy") +
         winrateToRating(
             champion2RoleStats.games === 0
                 ? 0.5
                 : champion2RoleStats.wins / champion2RoleStats.games,
-        );
+        ) +
+        getViewRatingOffset(dataset, championKeyB, roleB, "synergy");
     const expectedWinrate = ratingToWinrate(expectedRating);
 
     const duoStats = getStats(
@@ -551,9 +561,17 @@ export function analyzeDuo(
     );
     const combinedStats = averageStats(duoStats, champion2DuoStats);
 
+    const pairPriorGames = getPairPriorGames(
+        dataset,
+        "synergy",
+        roleA,
+        roleB,
+        priorGames,
+        (data, a, keyA, b, keyB) => analyzeDuo(data, a, keyA, b, keyB, 0),
+    );
     const adjustedStats = addStats(combinedStats, {
-        wins: priorGames * expectedWinrate,
-        games: priorGames,
+        wins: pairPriorGames * expectedWinrate,
+        games: pairPriorGames,
     });
     const winrate = adjustedStats.wins / adjustedStats.games;
 
@@ -639,15 +657,20 @@ export function analyzeMatchup(
     const roleStats = getStats(dataset, allyChampionKey, allyRole);
     const enemyRoleStats = getStats(dataset, enemyChampionKey, enemyRole);
 
+    // Matchup rows average both champions' views of the same games. Those
+    // views can disagree systematically, so each baseline is moved onto the
+    // averaged scale; otherwise every matchup of a champion shares one bias.
     const expectedRating =
         winrateToRating(
             roleStats.games === 0 ? 0.5 : roleStats.wins / roleStats.games,
-        ) -
+        ) +
+        getViewRatingOffset(dataset, allyChampionKey, allyRole, "matchup") -
         winrateToRating(
             enemyRoleStats.games === 0
                 ? 0.5
                 : enemyRoleStats.wins / enemyRoleStats.games,
-        );
+        ) -
+        getViewRatingOffset(dataset, enemyChampionKey, enemyRole, "matchup");
     const expectedWinrate = ratingToWinrate(expectedRating);
 
     const matchupStats = getStats(
@@ -671,14 +694,22 @@ export function analyzeMatchup(
     const wins = (matchupStats.wins + enemyLosses) / 2;
     const games = (matchupStats.games + enemyMatchupStats.games) / 2;
 
+    const pairPriorGames = getPairPriorGames(
+        dataset,
+        "matchup",
+        allyRole,
+        enemyRole,
+        priorGames,
+        (data, a, keyA, b, keyB) => analyzeMatchup(data, a, keyA, b, keyB, 0),
+    );
     const adjustedStats = addStats(
         {
             wins,
             games,
         },
         {
-            wins: priorGames * expectedWinrate,
-            games: priorGames,
+            wins: pairPriorGames * expectedWinrate,
+            games: pairPriorGames,
         },
     );
     const winrate = adjustedStats.wins / adjustedStats.games;

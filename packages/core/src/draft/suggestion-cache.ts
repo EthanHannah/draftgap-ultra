@@ -2,7 +2,6 @@ import { Dataset } from "../models/dataset/Dataset";
 import { WeightedTeamComp } from "./analysis";
 import {
     getSuggestionsWithRoleUncertainty,
-    INTERACTION_MIN_GAMES,
     Suggestion,
     SuggestionConfig,
 } from "./suggestions";
@@ -18,7 +17,14 @@ export function createSuggestionCache(
 ) {
     let previousDataset: Dataset | undefined;
     let previousInteractions: Dataset | undefined;
-    const entries = new Map<string, Suggestion[]>();
+    // Keyed by draft and every scoring input except the display threshold.
+    // Each entry was scored at some minimum-games threshold; it contains every
+    // candidate a stricter threshold would show, so stricter requests filter
+    // it while looser ones rescore the draft.
+    const entries = new Map<
+        string,
+        { minGames: number; suggestions: Suggestion[] }
+    >();
 
     return (
         dataset: Dataset,
@@ -36,41 +42,40 @@ export function createSuggestionCache(
             previousDataset = dataset;
             previousInteractions = interactions;
         }
-        // Calculate all scoring-baseline candidates once. Higher recommendation
-        // thresholds then filter cached results without recalculating scores.
-        const scoringConfig = {
-            ...config,
-            minGames: Math.min(config.minGames, INTERACTION_MIN_GAMES),
-        };
         const bannedKeys = [...bans];
+        const { minGames, ...scoringConfig } = config;
         const key = JSON.stringify([
             team.map(([comp, weight]) => [[...comp], weight]),
             enemy.map(([comp, weight]) => [[...comp], weight]),
             scoringConfig,
             [...bannedKeys].sort(),
         ]);
-        let result = entries.get(key);
-        if (result) {
+        let entry = entries.get(key);
+        if (entry && entry.minGames <= minGames) {
             entries.delete(key);
         } else {
-            result = calculate(
-                dataset,
-                interactions,
-                team,
-                enemy,
-                scoringConfig,
-                bannedKeys,
-            );
+            entries.delete(key);
+            entry = {
+                minGames,
+                suggestions: calculate(
+                    dataset,
+                    interactions,
+                    team,
+                    enemy,
+                    config,
+                    bannedKeys,
+                ),
+            };
         }
-        entries.set(key, result);
+        entries.set(key, entry);
         if (entries.size > MAX_CACHED_DRAFTS)
             entries.delete(entries.keys().next().value!);
 
         // Return a separate array so table sorting cannot mutate the cache.
-        return result.filter(
+        return entry.suggestions.filter(
             ({ championKey, role }) =>
                 (getStats(interactions, championKey, role).games / 30) * 7 >=
-                config.minGames,
+                minGames,
         );
     };
 }

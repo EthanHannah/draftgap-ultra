@@ -29,11 +29,13 @@ describe("blindability uncertainty", () => {
             getCounterBlindability([interaction(0.42, games)], prior, 3000)
                 .score;
         expect(bad(0)).toBe(0);
-        expect(bad(1)).toBeLessThan(0);
-        expect(bad(100)).toBeLessThan(bad(1));
+        // Rows are compared with a typical champion at the same evidence, so
+        // a few games of any result are negligible rather than signed.
+        expect(Math.abs(bad(1))).toBeLessThan(Math.abs(bad(12596)) * 0.01);
+        expect(Math.abs(bad(10))).toBeLessThan(Math.abs(bad(12596)) * 0.01);
+        expect(bad(100)).toBeLessThan(0);
         expect(bad(1749)).toBeLessThan(bad(100));
         expect(bad(12596)).toBeLessThan(bad(1749));
-        expect(Math.abs(bad(1))).toBeLessThan(Math.abs(bad(12596)) * 0.01);
     });
 
     test("neutral matchup means retain downside uncertainty until supported by data", () => {
@@ -51,7 +53,8 @@ describe("blindability uncertainty", () => {
             supported.counterExposure,
         );
         expect(sparse.score).toBeGreaterThan(0);
-        expect(sparse.score).toBeLessThan(supported.score * 0.01);
+        // One game sits inside the same-evidence baseline's noise.
+        expect(sparse.score).toBeLessThan(supported.score * 0.03);
         expect(supported.score).toBeGreaterThan(0);
     });
 
@@ -125,4 +128,76 @@ describe("blindability uncertainty", () => {
         expect(score(3000)).toBeLessThan(0);
         expect(score(250)).toBeLessThan(score(3000));
     });
+    test("a typical pool scores neutral at every sample size", () => {
+        // Observed effects at evenly spaced quantiles of the marginal
+        // distribution a typical champion would produce at this sample size.
+        const typicalPool = (games: number) => {
+            const spread = Math.sqrt(prior.variance + 0.25 / games);
+            return Array.from({ length: 199 }, (_, index) => {
+                const p = (index + 0.5) / 199;
+                // Inverse normal CDF by bisection.
+                let low = -8;
+                let high = 8;
+                for (let step = 0; step < 60; step++) {
+                    const mid = (low + high) / 2;
+                    const cdf = 0.5 * (1 + erf(mid / Math.SQRT2));
+                    if (cdf < p) low = mid;
+                    else high = mid;
+                }
+                return interaction(0.5 + spread * low, games);
+            });
+        };
+        const supported = Math.abs(
+            getCounterBlindability([interaction(0.42, 12596)], prior, 1000)
+                .score,
+        );
+        for (const games of [10, 300, 3000, 100000]) {
+            const score = getCounterBlindability(
+                typicalPool(games),
+                prior,
+                1000,
+            ).score;
+            expect(Math.abs(score)).toBeLessThan(supported * 0.02);
+        }
+    });
+
+    test("counterpicks weight a known counter above its forecast share", () => {
+        const counter = interaction(0.44, 20000, 0.1);
+        const neutral = interaction(0.5, 20000, 0.9);
+        const single = (row: ReturnType<typeof interaction>) =>
+            getCounterBlindability([{ ...row, weight: 1 }], prior, 1000)
+                .counterExposure;
+        const pool = getCounterBlindability([counter, neutral], prior, 1000);
+        const forecastOnly = 0.1 * single(counter) + 0.9 * single(neutral);
+        expect(pool.counterExposure).toBeGreaterThan(forecastOnly);
+        const noCounterpicks = getCounterBlindability(
+            [counter, neutral],
+            prior,
+            1000,
+            0,
+        );
+        expect(noCounterpicks.counterExposure).toBeCloseTo(forecastOnly, 10);
+        const moreCounterpicks = getCounterBlindability(
+            [counter, neutral],
+            prior,
+            1000,
+            0.9,
+        );
+        expect(moreCounterpicks.score).toBeLessThan(pool.score);
+    });
 });
+
+function erf(x: number) {
+    // Abramowitz and Stegun 7.1.26; accurate to 1.5e-7.
+    const sign = Math.sign(x);
+    const t = 1 / (1 + 0.3275911 * Math.abs(x));
+    const y =
+        1 -
+        ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t -
+            0.284496736) *
+            t +
+            0.254829592) *
+            t *
+            Math.exp(-x * x);
+    return sign * y;
+}

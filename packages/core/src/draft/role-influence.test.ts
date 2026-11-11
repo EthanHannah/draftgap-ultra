@@ -7,6 +7,9 @@ import {
     getDuoInteractionWeight,
     getTeamDuoInteractionWeight,
     getBlindMatchupInteractionWeight,
+    getBlindCounterpickShare,
+    LANE_COUNTERPICK_SHARE,
+    CROSS_ROLE_COUNTERPICK_SHARE,
 } from "./role-influence";
 
 test("percentage matrices preserve scoring budgets and team symmetry", () => {
@@ -53,39 +56,15 @@ test("percentage matrices preserve scoring budgets and team symmetry", () => {
     }
 });
 
-test("top counter matchups have the largest spread and all other rows stay closer", () => {
-    expect(MATCHUP_ROLE_PRIORITIES[Role.Top]).toEqual([35, 20, 15, 15, 15]);
+test("measured pair effects are not rescaled by role", () => {
     for (const role of ROLES) {
-        const matchup = MATCHUP_ROLE_PRIORITIES[role];
-        expect(Math.max(...matchup) - Math.min(...matchup)).toBeLessThanOrEqual(
-            role === Role.Top ? 20 : 15,
-        );
-        const duo = DUO_ROLE_PRIORITIES[role].filter(
-            (_, other) => other !== role,
-        );
-        expect(Math.max(...duo) - Math.min(...duo)).toBeLessThanOrEqual(10);
-    }
-    for (const role of ROLES.filter((role) => role !== Role.Jungle)) {
-        expect(
-            MATCHUP_ROLE_PRIORITIES[Role.Jungle][Role.Jungle],
-        ).toBeGreaterThan(MATCHUP_ROLE_PRIORITIES[Role.Jungle][role]);
-    }
-});
-
-test("bot and support prioritize their partnership and the enemy bot lane", () => {
-    for (const role of [Role.Bottom, Role.Support]) {
-        const partner = role === Role.Bottom ? Role.Support : Role.Bottom;
-        expect(DUO_ROLE_PRIORITIES[role][partner]).toBe(30);
-        expect(
-            MATCHUP_ROLE_PRIORITIES[role][Role.Bottom] +
-                MATCHUP_ROLE_PRIORITIES[role][Role.Support],
-        ).toBe(50);
-        for (const distantRole of [Role.Top, Role.Jungle, Role.Middle]) {
-            expect(MATCHUP_ROLE_PRIORITIES[role][Role.Bottom]).toBeGreaterThan(
-                MATCHUP_ROLE_PRIORITIES[role][distantRole],
+        for (const other of ROLES) {
+            expect(getMatchupInteractionWeight(role, other)).toBe(1);
+            expect(getDuoInteractionWeight(role, other)).toBe(
+                role === other ? 0 : 1,
             );
-            expect(MATCHUP_ROLE_PRIORITIES[role][Role.Support]).toBeGreaterThan(
-                MATCHUP_ROLE_PRIORITIES[role][distantRole],
+            expect(getTeamDuoInteractionWeight(role, other)).toBe(
+                getDuoInteractionWeight(role, other),
             );
         }
     }
@@ -96,4 +75,29 @@ test("jungle gives every teammate equal synergy priority", () => {
         expect(DUO_ROLE_PRIORITIES[Role.Jungle][role]).toBe(25);
         expect(getDuoInteractionWeight(Role.Jungle, role)).toBe(1);
     }
+});
+
+test("blind counterpicks target direct opponents", () => {
+    expect(LANE_COUNTERPICK_SHARE).toBeGreaterThan(
+        CROSS_ROLE_COUNTERPICK_SHARE,
+    );
+    for (const role of ROLES) {
+        expect(getBlindCounterpickShare(role, role)).toBe(
+            LANE_COUNTERPICK_SHARE,
+        );
+        for (const other of ROLES) {
+            expect(getBlindCounterpickShare(role, other)).toBe(
+                getBlindCounterpickShare(other, role),
+            );
+        }
+    }
+    expect(getBlindCounterpickShare(Role.Bottom, Role.Support)).toBe(
+        LANE_COUNTERPICK_SHARE,
+    );
+    expect(getBlindCounterpickShare(Role.Jungle, Role.Middle)).toBe(
+        CROSS_ROLE_COUNTERPICK_SHARE,
+    );
+    expect(getBlindCounterpickShare(Role.Top, Role.Support)).toBe(
+        CROSS_ROLE_COUNTERPICK_SHARE,
+    );
 });
